@@ -111,7 +111,18 @@ before continuing — the agent is remote process control.
 
 ### 4. The guarantee that matters most
 
-SC-002 is zero-tolerance, so test it deliberately rather than hoping:
+SC-002 is zero-tolerance, so test it deliberately rather than hoping.
+
+**Beat the autosave, or the test proves nothing.** Palworld autosaves every 30
+seconds while a player is connected (`AutoSaveSpan=30`). Join, wander about, stop,
+and the world comes back — whether or not `/stop` saved anything at all. A broken
+`stop()` passes that test identically; so would pulling the power. What this system
+adds is the final sub-30-second window, which is exactly the slice SC-002 names.
+So make the change and stop **within a few seconds of it**, before the next
+autosave fires.
+
+Conversely, a save written well after the last periodic one, seconds after a stop
+was issued, is the signal that `stop()` did the work.
 
 1. Join, do something unmistakable — build a structure, move a long way.
 2. `/stop` immediately, without waiting.
