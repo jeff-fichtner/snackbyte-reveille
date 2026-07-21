@@ -218,6 +218,55 @@ Same LAN, the existing emitter already reaches it.
 The adapter boundary exists so this stays cheap *later*. Don't pay for it now by
 building an abstraction against a single implementation.
 
+**Wanted eventually:** Satisfactory, Raft, Minecraft. Checked 2026-07-21; they are
+not equivalent, and the order matters.
+
+- **Satisfactory — do this one first.** Official dedicated server on SteamCMD with
+  an **official HTTPS API** on loopback (`https://127.0.0.1:7777/api/v1`) covering
+  server state, save management and shutdown. Structurally the same adapter as
+  Palworld: ask an API for state, save, verify, then shut down. It is the row this
+  architecture was drawn for, and it proves the game-agnostic axis without
+  simultaneously inventing a new control mechanism. One wrinkle: the API is always
+  TLS-wrapped, self-signed by default, so the adapter needs to skip verification on
+  loopback — doable with built-in Node, no dependency.
+- **Minecraft — second.** Official server, and **RCON** (`enable-rcon` in
+  `server.properties`) gives `save-all` and `stop` over a network protocol, so it
+  avoids the stdin/process-handle trap entirely. RCON reachability doubles as the
+  "is it up" signal the way the Palworld REST API does. It is a binary protocol
+  rather than HTTP, so the agent hand-rolls a small client — which is the useful
+  stretch: it proves an adapter need not speak HTTP. Note the irony against
+  DECISIONS 009, which rejected RCON *for Palworld* because Pocketpair deprecated
+  it; for Minecraft it is the stable, standard path.
+- **Raft — last, and the least certain.** There is no official dedicated server.
+  RDS (Raft Dedicated Server) is community software from RaftModding, and
+  self-hosting it is gated behind a paid patron tier. Community server software
+  tracking a game it does not control is the most likely of the three to break on
+  a game update, and the most likely to be console-driven.
+
+**The precondition is not "we like the game", it is "the game has a dedicated
+server process on a machine we control."** That is what an agent is welded to. A
+game with peer-hosted co-op has no such process — the host *is* somebody's game
+client, which starts when they press play and dies when they quit. There is
+nothing to start, nothing to stop gracefully, and no world on our box to save. The
+right answer there is not a fourth kind of component that reaches into a player's
+client; it is to wait.
+
+**Subnautica 2 — deferred on exactly that.** Early Access from 2026-05-14 is
+peer-hosted co-op: no standalone server binary, no server AppID on SteamCMD, no
+address to connect to. Official dedicated-server support is on the Early Access
+roadmap with no date, and that Early Access is expected to run two to three years.
+**Trigger:** Unknown Worlds ship a dedicated server binary. On that day it is a
+row — another agent on another port — and nothing here changes.
+
+**What the second adapter will actually cost** is not the row, it is discovering
+what the interface assumed. Palworld gave two things away free: a REST API you can
+ask for state at any moment, and a control channel that needs no handle on the
+process. An adapter driven by a console on stdin has neither — `running` stops
+being derivable, and holding stdin collides with spawning detached (which exists
+so restarting the agent never kills the game server) and with the contract's
+no-state-between-requests rule. That is the real work, and the second adapter is
+where it should be paid, not now.
+
 ### Announcements via `snackbyte-discord`
 Reveille could post to that hub as an inbound webhook source — adding one is
 near-zero effort by its own design — so "server up" and "world saved, stopped"
