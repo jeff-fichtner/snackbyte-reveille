@@ -19,7 +19,7 @@ materializes as soon as `spec.md` exists and is enriched on every run.
 ## Preconditions
 
 - The ClickUp MCP server is connected.
-- ClickUp sync is not disabled for this repo. If `.specify/extensions/clickup-sync/config.yml`
+- ClickUp sync is not disabled for this repo. If `.specify/extensions/clickup/config.yml`
   has `enabled: false` (the user previously declined), **silently do nothing and exit 0** — do
   not ask, do not sync. (Matches provision's decline state.)
 - The manifest has `listId` and `statusMapping`. If not, **refuse** and instruct the user to
@@ -27,8 +27,8 @@ materializes as soon as `spec.md` exists and is enriched on every run.
   Check with:
 
   ```bash
-  .specify/extensions/clickup-sync/scripts/bash/clickup-manifest.sh get listId
-  .specify/extensions/clickup-sync/scripts/bash/clickup-manifest.sh get statusMapping
+  .specify/extensions/clickup/scripts/bash/clickup-manifest.sh get listId
+  .specify/extensions/clickup/scripts/bash/clickup-manifest.sh get statusMapping
   ```
 - `spec.md` exists for the feature (the card is keyed off the spec).
 
@@ -38,9 +38,9 @@ Run the helpers to compute the desired state:
 
 ```bash
 # US-grouped task lines with done-state (empty groups if no tasks.md yet):
-.specify/extensions/clickup-sync/scripts/bash/clickup-parse-tasks.sh
+.specify/extensions/clickup/scripts/bash/clickup-parse-tasks.sh
 # Derived status (not-started | in-progress | done):
-.specify/extensions/clickup-sync/scripts/bash/clickup-derive-status.sh
+.specify/extensions/clickup/scripts/bash/clickup-derive-status.sh
 ```
 
 Then compute each element's desired content:
@@ -66,7 +66,7 @@ data, NOT the rendered ClickUp prose — so any future run recomputes the identi
 no-op stays a no-op):
 
 ```bash
-.specify/extensions/clickup-sync/scripts/bash/clickup-manifest.sh hash --string "<content>"
+.specify/extensions/clickup/scripts/bash/clickup-manifest.sh hash --string "<content>"
 ```
 
 Canonical content per element (keep this exact — the stored manifest hashes depend on it):

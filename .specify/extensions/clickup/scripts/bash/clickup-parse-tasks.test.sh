@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tests for clickup-parse-tasks.sh — tasks.md → US-grouped JSON.
-# Run: bash .specify/extensions/clickup-sync/scripts/bash/clickup-parse-tasks.test.sh
+# Run: bash .specify/extensions/clickup/scripts/bash/clickup-parse-tasks.test.sh
 set -uo pipefail
 
 DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"

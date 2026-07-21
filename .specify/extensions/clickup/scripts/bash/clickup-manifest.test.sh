@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tests for clickup-manifest.sh — manifest read/merge/write + stable hashing.
-# Run: bash .specify/extensions/clickup-sync/scripts/bash/clickup-manifest.test.sh
+# Run: bash .specify/extensions/clickup/scripts/bash/clickup-manifest.test.sh
 set -uo pipefail
 
 DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"

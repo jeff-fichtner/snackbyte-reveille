@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Tests for clickup-derive-status.sh — repo state → not-started|in-progress|done.
-# Run: bash .specify/extensions/clickup-sync/scripts/bash/clickup-derive-status.test.sh
+# Run: bash .specify/extensions/clickup/scripts/bash/clickup-derive-status.test.sh
 set -uo pipefail
 
 DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"

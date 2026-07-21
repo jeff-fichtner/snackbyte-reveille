@@ -18,13 +18,13 @@ the connected ClickUp MCP server — no API/auth code.
 ## Preconditions
 
 - The ClickUp MCP server is connected.
-- `.specify/extensions/clickup-sync/config.yml` resolves to real `space`/`list` values via the
+- `.specify/extensions/clickup/config.yml` resolves to real `space`/`list` values via the
   placeholder flow below.
 
 ## Config resolution (placeholder → ask → remember)
 
 Before doing anything else, resolve `space` and `list` from
-`.specify/extensions/clickup-sync/config.yml`:
+`.specify/extensions/clickup/config.yml`:
 
 1. If `enabled: false` is set in `config.yml`, the user has previously **declined** ClickUp
    sync for this repo. **Silently do nothing and exit 0** — do NOT ask again. (This is the
@@ -46,7 +46,7 @@ Before doing anything else, resolve `space` and `list` from
 1. **Resolve the active feature** and manifest path:
 
    ```bash
-   .specify/extensions/clickup-sync/scripts/bash/clickup-manifest.sh path
+   .specify/extensions/clickup/scripts/bash/clickup-manifest.sh path
    ```
 
 2. **Read config** — use the `space`/`list` values resolved by the "Config resolution" block
@@ -78,7 +78,7 @@ Before doing anything else, resolve `space` and `list` from
 6. **Write the manifest targets** (merge, preserving any existing `card`/`userStories`):
 
    ```bash
-   .specify/extensions/clickup-sync/scripts/bash/clickup-manifest.sh set-targets \
+   .specify/extensions/clickup/scripts/bash/clickup-manifest.sh set-targets \
      --workspace "<workspace id>" --space "<space id>" --list "<list id>" \
      --status-map '{"not-started":"<name>","in-progress":"<name>","done":"<name>"}'
    ```

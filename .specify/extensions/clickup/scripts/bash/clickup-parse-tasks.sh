@@ -64,6 +64,11 @@ rows="$(awk '
         }
         next
     }
+    # Any OTHER phase heading clears the fallback. Without this, phase_us is
+    # sticky: once a "Phase N: User Story N" heading is seen it applies for the
+    # rest of the file, so unlabelled Setup/Polish tasks in later phases are
+    # silently attributed to the last user story.
+    /^##[[:space:]]+Phase[[:space:]]/ { phase_us = ""; next }
     # A task checkbox line.
     /^[[:space:]]*-[[:space:]]*\[[ xX]\][[:space:]]*T[0-9][0-9][0-9]/ {
         line = $0
