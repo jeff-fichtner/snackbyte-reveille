@@ -58,8 +58,11 @@ export function describeStart(result: AgentResult): Reply {
     // Deliberately promises no duration. The system does not know when the server
     // becomes joinable and must not imply it does (FR-004) — and the real figure
     // varies with world size anyway (~3s empty, longer once there is a world).
+    // `ok` means the COMMAND succeeded, not that the server is up — the honesty
+    // lives in the text and footnote, which say exactly that. Green rather than
+    // amber because this reply is final: nothing further will arrive.
     return {
-      tone: 'progress',
+      tone: 'ok',
       text: 'Starting the server. Launch issued without error — give it a moment, then join.',
       footnote: 'That means launched, not verified. If it died on startup you will find out by failing to join.',
     };
