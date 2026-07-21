@@ -15,6 +15,9 @@ build/
 *.log
 npm-debug.log*
 
+# spec kit — downloaded extension-catalog cache, refetched on demand
+.specify/extensions/.cache/
+
 # os / editor
 .DS_Store
 Thumbs.db

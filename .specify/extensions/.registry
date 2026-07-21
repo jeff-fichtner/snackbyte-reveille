@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0",
+  "extensions": {
+    "clickup": {
+      "version": "1.0.0",
+      "source": "local",
+      "manifest_hash": "sha256:db93c8db3e60c6a4f5252c5b7d3182654cdb39076e9d7cfdff01a645549f653f",
+      "enabled": true,
+      "priority": 10,
+      "registered_commands": {
+        "claude": [
+          "speckit.clickup.provision",
+          "speckit.clickup.sync"
+        ]
+      },
+      "registered_skills": [],
+      "installed_at": "2026-07-21T06:09:08.046332+00:00"
+    }
+  }
+}

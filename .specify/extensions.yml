@@ -1,0 +1,32 @@
+installed:
+- clickup
+settings:
+  auto_execute_hooks: true
+hooks:
+  after_plan:
+  - extension: clickup
+    command: speckit.clickup.provision
+    enabled: true
+    optional: true
+    priority: 10
+    prompt: Execute speckit.clickup.provision?
+    description: Provision the ClickUp target after planning
+    condition: null
+  after_tasks:
+  - extension: clickup
+    command: speckit.clickup.sync
+    enabled: true
+    optional: true
+    priority: 10
+    prompt: Execute speckit.clickup.sync?
+    description: Sync the feature-card after task generation
+    condition: null
+  after_implement:
+  - extension: clickup
+    command: speckit.clickup.sync
+    enabled: true
+    optional: true
+    priority: 10
+    prompt: Execute speckit.clickup.sync?
+    description: Sync the feature-card after implementation
+    condition: null
