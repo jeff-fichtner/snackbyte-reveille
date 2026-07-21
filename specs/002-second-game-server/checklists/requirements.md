@@ -55,6 +55,23 @@ Three validation iterations were needed. What changed:
    governs what status may report. They are now restated in full, with FR-011
    carrying an explicit note about status.
 
+**US3 (told when it is actually up) was added after the first pass**, and it is the
+only part of this spec that *amends* an inherited requirement rather than adding
+to them. FR-004 forbade claiming a server is up — correctly, because the system
+had no way to know. US3 gives it one, so the prohibition is narrowed to "unless it
+has observed that to be true" rather than dropped. The immediate reply is still
+bound by it; only the follow-up is not.
+
+Two consequences were written down rather than left implicit, because both are the
+kind of thing that gets discovered late:
+
+- **A timeout is not a failure.** If a server does not come up within the bound,
+  the system knows only that it could not confirm — the server may be slow. FR-029
+  and SC-011 forbid reporting that as failure.
+- **A pending wait does not survive a restart.** FR-012 allows no durable state, so
+  FR-032 makes the loss explicit and deliberate rather than a surprise. Reporting
+  from state that outlived a restart would be worse than reporting nothing.
+
 **Deliberately not marked as clarifications.** Three points were judged to have
 sound defaults rather than needing the user:
 
