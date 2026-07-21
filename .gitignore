@@ -18,6 +18,9 @@ npm-debug.log*
 # spec kit — downloaded extension-catalog cache, refetched on demand
 .specify/extensions/.cache/
 
+# spec-render output — regenerated from the .md sources on demand
+specs/**/*.html
+
 # os / editor
 .DS_Store
 Thumbs.db

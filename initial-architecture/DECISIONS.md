@@ -274,3 +274,157 @@ agent is asleep too — the waker must be a different always-on host on that LAN
 **This is the last new kind of thing the system gains.** Note also that **sleep**
 is not the emitter's job: WoL can only wake, and the OS puts machines to sleep on
 idle using a setting that already exists. Nothing is written for it.
+
+---
+
+## 009 · The Palworld adapter speaks the REST API, not RCON
+**Date:** 2026-07-21 · **Status:** accepted
+**Closes:** candidate: which Palworld interface serves the four verbs
+
+**Context.** Earlier drafts recorded RCON and the REST API as interchangeable
+candidates — *"which interface serves which call is a candidate-level detail."*
+Planning feature `001-discord-start-stop` forced the choice, because `stop` must
+save the world and verify the save before shutting down, and that ordering has to
+be expressed against one of them.
+
+**Decision.** The adapter uses the **REST API**: `POST /v1/api/save`, verify, then
+`POST /v1/api/shutdown`, with Basic auth over loopback. RCON is **disabled
+outright** on the server rather than merely left unused.
+
+**`POST /v1/api/stop` is forbidden.** It is Palworld's *force* stop and is
+precisely the "kill the process to satisfy the call" that Principle IV rejects.
+It is banned by name in the feature's contract, alongside OS-level process
+termination.
+
+**Why it won.** **Pocketpair has officially deprecated RCON and it is scheduled
+to stop working in a future update.** The adapter is the only Palworld-aware code
+in the system, so building it on a dying interface would mean rewriting the one
+game-specific file for no gain. Both interfaces expose equivalent save and
+shutdown operations, so nothing is given up. Chosen over RCON, which every
+community guide still recommends — the guides predate the deprecation.
+
+RCON is disabled rather than firewalled because an admin interface that exists
+but is unused is only a liability.
+
+**Consequences.** The server requires `RESTAPIEnabled=True` and a **real**
+`AdminPassword` — Basic auth depends on it, and a blank admin password is an open
+admin interface on the LAN. Neither the REST API nor RCON may ever be
+internet-reachable; Palworld's own documentation states these APIs *"are not
+designed to be exposed directly to the Internet."*
+
+It also gives "is the server running?" a better answer than process inspection:
+`PalServer.exe` is a launcher that spawns a child, so the launcher's presence
+proves nothing. The REST API answering does. That satisfies the no-persisted-state
+rule for free and defines "still starting" as *launched, but the API is not
+answering yet*.
+
+> **Amended by [010](#010--still-starting-needs-a-second-signal-amends-009).** The
+> closing claim above is wrong: a silent REST API cannot distinguish `starting`
+> from `stopped`. See 010.
+
+---
+
+## 010 · "Still starting" needs a second signal (amends 009)
+**Date:** 2026-07-21 · **Status:** accepted
+**Closes:** how `starting` is told apart from `stopped`
+
+**Context.** 009 closed with the claim that the REST API alone defines "still
+starting" — *launched, but the API is not answering yet* — and that no further
+machinery was required. FR-017 (refuse a stop mid-launch) was added later, by the
+2026-07-21 clarification session, and is the first requirement to actually depend
+on that claim. It does not hold.
+
+A silent REST API is **ambiguous**: it means `starting` *or* `stopped`, and
+nothing in the HTTP response separates them. "Launched" is not observable from an
+interface that is not answering. The consequence was concrete and bad — the
+`/start` guard would read a silent API as `stopped` and launch a **second**
+`PalServer.exe` during the ~90-second startup window, which is exactly what
+FR-008 forbids and a plausible route to the world corruption Principle IV exists
+to prevent.
+
+**Decision.** State is derived from **two** questions asked at request time:
+does `GET /v1/api/info` answer, and does a `PalServer.exe` **or**
+`PalServer-Win64-Shipping-Cmd.exe` process exist.
+
+| REST answers | Either process exists | State |
+|---|---|---|
+| yes | — | `running` |
+| no | yes | `starting` |
+| no | no | `stopped` |
+
+Because this is a check-then-act, the agent **serializes command handling** so
+two concurrent requests cannot both read `stopped` before either spawns.
+
+**Why it won.** It is the smallest thing that makes FR-008 and FR-017 true, and
+it preserves everything 009 got right. 009 was correct that process identity is a
+bad *"is it up?"* signal — the launcher exits while the child runs — so the REST
+API remains the sole authority on `running`. Process existence is used only for
+the narrower job the REST API cannot do: separating `starting` from `stopped`.
+Both process names are checked because each covers the other's blind spot — the
+launcher exists from the instant `spawn` returns, closing the window before the
+child appears; the child covers the launcher exiting early.
+
+Chosen over remembering that a start was issued, which 009 already rejected and
+which the agent's contract forbids between requests. Serialization is not that:
+it is mutual exclusion *within* a request, and nothing survives the response, so
+FR-012 holds.
+
+**Consequences.** `getState()` replaces `isRunning()`; a boolean cannot carry
+three states. `/start` now has two distinct refusals — `409 running` and
+`409 starting` — which means `starting` appears as both a 202 and a 409, so the
+orchestrator must key on HTTP status rather than `state` alone. The agent gains a
+process lookup, which is the first OS-level call outside `spawn` and is
+Windows-specific; it lives in `palworld.ts` with the rest of the platform
+knowledge. The concurrent-command edge case, previously listed as not validated,
+is now actually handled.
+
+---
+
+## 011 · The release flow is consumed, not built
+**Date:** 2026-07-21 · **Status:** accepted
+**Closes:** candidate: how this repo versions and releases
+
+**Context.** Versioning had been sitting in `001-discord-start-stop` as a task,
+which was the wrong home: it is repository infrastructure, not part of starting
+and stopping a game server. It is set up outright instead, so every commit from
+here on is versioned, and it is removed from that feature's task list.
+
+**Decision.** Consume `jeff-fichtner/snackbyte-release-flow-action`, pinned at
+`@v1`, with `version-strategy: build-id`, per that action's `CONSUMING.md`. It is
+adopted as an existing snackbyte-wide convention, not designed here.
+
+**Why it won.** The reasoning lives in the action's own repository and it is
+already the standard across snackbyte repos; re-deriving it per feature would be
+the duplication the convention exists to prevent. Chosen over deferring it to
+[03-deferred.md](03-deferred.md) until a second machine made version drift real —
+rejected because consuming a pinned, externally-maintained action is close to
+zero marginal work, while retrofitting release infrastructure onto a repo that
+has started shipping is not.
+
+This is a **knowing, bounded deviation from Principle III**, which says a future
+capability is not licence to prepare for it. Nothing in this milestone reads a
+version number: the quickstart runs both processes from source with `npm start`,
+and there is no packaging step, artifact registry, or install path. The deviation
+is accepted because the cost is a pinned reference rather than built machinery,
+and because Principle III's target is *bespoke* speculative structure, not
+adopting an existing org standard.
+
+**Consequences.** This repo inherits the action's versioning semantics and is
+coupled to its `@v1` contract — a breaking change there is a change here. Version
+numbers will exist before anything consumes them, which is accepted and expected
+to stay true until the orchestrator relocates and two machines can drift out of
+sync. If that coupling ever costs more than it saves, the entry to supersede is
+this one.
+
+`environments.json` lists **`main` and `dev`** even though `dev` does not exist
+yet — an unlisted branch simply resolves to `is-env=false`, so the row costs
+nothing until the branch appears and means staging works the day it does. The
+workflow carries an empty deploy slot gated on `is-env`; adding a target is an
+edit to that one step.
+
+**The manifest is required and its absence fails quietly.** `resolve-env.sh`
+defaults the manifest *path*, never its contents, and `require()` on a missing
+file is caught by the same branch as "this isn't a release branch" — yielding
+`is-env=false`, "nothing to do", and a green exit 0. A repo that forgets the file
+silently never releases. That is a defect in the action, not here; recorded so the
+next repo does not lose an afternoon to it.
