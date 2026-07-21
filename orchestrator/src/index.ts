@@ -49,6 +49,21 @@ client.once('clientReady', () => {
 
 client.on('interactionCreate', (interaction) => {
   if (!interaction.isChatInputCommand()) return;
+
+  // FR-001's "any member of the Discord server" means THIS server. The whole
+  // justification for having no authorization is that the guild is private and
+  // trusted (spec Assumptions) — so exactly one guild may command exactly one
+  // game server. Commands are registered guild-scoped, which already achieves
+  // that; this makes it explicit rather than incidental, because the bot can sit
+  // in other servers (a test guild, say) and a stray registration there would
+  // otherwise create a second live control surface for the same host.
+  if (interaction.guildId !== config.discordGuildId) {
+    process.stdout.write(
+      `ignored /${interaction.commandName} from unconfigured guild ${interaction.guildId ?? 'DM'}\n`,
+    );
+    return;
+  }
+
   void handle(interaction);
 });
 
