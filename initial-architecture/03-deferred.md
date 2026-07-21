@@ -93,6 +93,27 @@ Nothing covers how the game server gets installed, patched, or recovered. Steam
 updates can and do break running servers, and the premise here is that nobody is
 watching the box.
 
+### Starting the agent and orchestrator automatically
+Both are started by hand today. After a reboot Discord goes quiet until someone
+runs them, which the spec already anticipates: *"getting it to start automatically
+is an operational concern, not a requirement of this feature"* (spec Assumptions).
+
+**When it happens:** the first time the server is wanted and nobody is at the
+machine to start the processes — which is the same complaint the whole project
+exists to answer, so it will be obvious. Two scheduled tasks, roughly.
+
+**It carries a decision with it.** `plan.md` says the orchestrator runs under WSL2;
+in practice it has only ever been run as native Windows node, which works because
+it is `discord.js` plus `fetch` and touches nothing platform-specific. Whichever
+way that lands, it should land when autostart is built — the two are coupled,
+since WSL2 needs the distro up before the process. Native for both is the cheaper
+answer and costs nothing later: the seam is HTTP regardless, so relocating the
+orchestrator to its own always-on box stays a config change either way.
+
+Not deferred, and already true: the agent must never take the game server down
+with it. `start()` spawns detached and unrefs the child, so restarting or killing
+the agent leaves Palworld running.
+
 ### A restart scheduler
 Palworld's memory leak is real — a world clean at ~4GB can reach 15GB+ by the next
 day, and more RAM doesn't fix it. The standard remedy is a restart every 6–12
