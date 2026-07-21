@@ -428,3 +428,41 @@ file is caught by the same branch as "this isn't a release branch" — yielding
 `is-env=false`, "nothing to do", and a green exit 0. A repo that forgets the file
 silently never releases. That is a defect in the action, not here; recorded so the
 next repo does not lose an afternoon to it.
+
+---
+
+## 012 · The game server advertises itself; a password is the only lever
+**Date:** 2026-07-21 · **Status:** accepted
+**Closes:** how the server is kept private once its port is forwarded
+
+**Context.** The spec's exposure requirements are entirely about **ports** —
+exactly one inbound path, admin interfaces unreachable, a port scan showing one
+open port (FR-013 to FR-016, SC-007). Every one of those can hold while the game
+server *publishes its own address to a public directory*, which is a different
+exposure vector the architecture never considered. It surfaced the moment
+forwarding `8211/UDP` was imminent.
+
+**Decision.** Accept that the server is discoverable and make it **unjoinable**
+instead: `ServerPassword` is set, and the two players share it. Being listed is
+tolerated; being enterable is not.
+
+**Why it won.** Because nothing else is available. All 119 settings in
+`PalWorldSettings.ini` were enumerated: there is no unlisted, private, or
+community-browser flag of any kind. Chosen over the two real alternatives —
+not forwarding the port at all and using a mesh VPN such as Tailscale, which
+works and exposes nothing but requires every player to install and join a tailnet;
+and leaving the password blank, which with a forwarded port means anyone browsing
+the community list can enter the world.
+
+**Consequences.** The server name and the household's public IP are visible to
+anyone browsing, and that cannot be prevented while the port is forwarded — a
+privacy cost accepted knowingly rather than discovered later. Onboarding a player
+now has a step: they need the phrase. `AdminPassword` is unrelated and unaffected;
+it guards the REST API the agent uses over loopback, and the two must not be
+conflated.
+
+**SC-007 is unchanged but no longer sufficient on its own.** It asserts a port
+scan finds one open port, which remains true. It says nothing about the server
+announcing where it is. If a future milestone wants genuine privacy rather than
+inaccessibility, the port forward has to go, and that is a Tailscale-shaped
+decision, not a settings change.

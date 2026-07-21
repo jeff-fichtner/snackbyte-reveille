@@ -58,8 +58,12 @@ cd orchestrator && npm start
 
 This is where the risk is. Prove it with `curl` — no bot required.
 
-**Order matters.** The server spends ~90 seconds in `starting` before the REST API
+**Order matters.** The server spends a while in `starting` before the REST API
 answers, and the refusals differ on either side of that edge. Do not skip the wait.
+
+Measured on a fresh, empty world on `watson`, the REST API answered **~3 seconds**
+after launch — not the ninety the original description guessed at. Expect that to
+grow with world size, so poll rather than assuming either number.
 
 ```bash
 curl -i -X POST http://127.0.0.1:<agentPort>/start

@@ -29,8 +29,11 @@ export function describeStart(result: AgentResult): string {
   const { status, body } = result;
 
   if (status === 202) {
+    // Deliberately promises no duration. The system does not know when the server
+    // becomes joinable and must not imply it does (FR-004) — and the real figure
+    // varies with world size anyway (~3s empty, longer once there is a world).
     return (
-      'Starting the server. Launch issued without error — try joining in a minute or so.\n' +
+      'Starting the server. Launch issued without error — give it a moment, then join.\n' +
       '> That means launched, not verified. If it died on startup you will find out by failing to join.'
     );
   }
