@@ -134,3 +134,70 @@ export function start(config: AgentConfig): void {
     process.stderr.write(`spawn reported an error after launch was issued: ${error.message}\n`);
   });
 }
+
+/** Seconds Palworld counts down before shutting down, announced to anyone connected. */
+const SHUTDOWN_WAIT_SECONDS = 1;
+
+/**
+ * Save the world, verify the save succeeded, and only then shut the server down.
+ *
+ * **Availability is disposable; durability is not** (Constitution IV). If the save
+ * cannot be confirmed, this throws and the server is LEFT RUNNING — losing a
+ * session's progress is categorically worse than any amount of downtime (FR-006).
+ *
+ * `POST /v1/api/stop` is Palworld's *force* stop and is banned by name, as is any
+ * OS-level process termination. Neither may ever appear in a path reachable from
+ * here: they are precisely the "kill it to satisfy the call" that Principle IV
+ * rejects (DECISIONS 009).
+ *
+ * The whole operation is bounded (FR-007) — a stop that hangs forever is as bad as
+ * one that loses data. Exceeding the bound throws with the server still running.
+ */
+export async function stop(config: AgentConfig): Promise<void> {
+  const deadline = Date.now() + config.stopTimeoutMs;
+  const remaining = (): number => {
+    const left = deadline - Date.now();
+    if (left <= 0) {
+      throw new Error(
+        `Stop exceeded its ${config.stopTimeoutMs}ms bound; server left running (FR-007).`,
+      );
+    }
+    return left;
+  };
+
+  // 1. Save, and VERIFY it. This is the whole guarantee (SC-002).
+  let saved: Response;
+  try {
+    saved = await restFetch(config, '/v1/api/save', { method: 'POST' }, remaining());
+  } catch (error: unknown) {
+    const why = error instanceof Error ? error.message : String(error);
+    throw new Error(`Could not save the world (${why}); server left running.`);
+  }
+  if (!saved.ok) {
+    throw new Error(`Could not save the world (save returned HTTP ${saved.status}); server left running.`);
+  }
+
+  // 2. Only now may it be shut down — gracefully, never killed.
+  let shutdown: Response;
+  try {
+    shutdown = await restFetch(
+      config,
+      '/v1/api/shutdown',
+      {
+        method: 'POST',
+        body: JSON.stringify({ waittime: SHUTDOWN_WAIT_SECONDS, message: 'Stopping via Reveille' }),
+      },
+      remaining(),
+    );
+  } catch (error: unknown) {
+    const why = error instanceof Error ? error.message : String(error);
+    // The world IS saved at this point, so nothing is at risk — but the server is
+    // still up and saying otherwise would be a lie.
+    throw new Error(`World saved, but shutdown could not be issued (${why}); server left running.`);
+  }
+  if (!shutdown.ok) {
+    throw new Error(
+      `World saved, but shutdown returned HTTP ${shutdown.status}; server left running.`,
+    );
+  }
+}

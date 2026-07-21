@@ -8,7 +8,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { AgentResponse } from '@reveille/contract';
 import { loadConfig, type AgentConfig } from './config.ts';
 import { serialize } from './serialize.ts';
-import { getState, start } from './palworld.ts';
+import { getState, start, stop } from './palworld.ts';
 
 /**
  * Loopback, and NOT configurable.
@@ -67,6 +67,40 @@ async function handleStart(config: AgentConfig): Promise<Outcome> {
   return { status: 202, body: { state: 'starting' } };
 }
 
+/**
+ * POST /stop — save the world, then shut the server down.
+ *
+ * Refuses rather than forces in every ambiguous case. Nothing here may terminate a
+ * process, and a stop is never queued for later: an unattended shutdown no player
+ * directly commanded is forbidden outright (FR-010, FR-017).
+ */
+async function handleStop(config: AgentConfig): Promise<Outcome> {
+  const state = await getState(config);
+
+  if (state === 'stopped') {
+    return { status: 409, body: { state, message: 'Server is already stopped.' } };
+  }
+  if (state === 'starting') {
+    // Launched but the REST API is not answering yet, so there is nothing to ask
+    // to save. Refused, and the launching process is left untouched (FR-017).
+    return {
+      status: 409,
+      body: { state, message: 'A start is in progress. Try again shortly.' },
+    };
+  }
+
+  try {
+    await stop(config);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    // The server is still running in every one of these paths, which is the point:
+    // a stop that cannot be graceful is not a stop (Constitution IV).
+    return { status: 500, body: { state: 'error', message } };
+  }
+
+  return { status: 200, body: { state: 'stopped' } };
+}
+
 async function route(req: IncomingMessage, config: AgentConfig): Promise<Outcome> {
   const path = (req.url ?? '').split('?')[0];
 
@@ -78,8 +112,7 @@ async function route(req: IncomingMessage, config: AgentConfig): Promise<Outcome
     case '/start':
       return await handleStart(config);
     case '/stop':
-      // Implemented by US2 (T020).
-      return { status: 501, body: { state: 'error', message: 'Not implemented yet.' } };
+      return await handleStop(config);
     default:
       return { status: 404, body: { state: 'error', message: `No such endpoint: ${path}` } };
   }
