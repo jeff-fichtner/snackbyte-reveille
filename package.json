@@ -1,0 +1,7 @@
+{
+  "name": "snackbyte-reveille",
+  "private": true,
+  "version": "0.1.0",
+  "description": "An on-demand control plane for self-hosted game servers.",
+  "license": "MIT"
+}

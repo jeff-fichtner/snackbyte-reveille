@@ -1,0 +1,19 @@
+{
+  "$comment": "The environments this repo releases — the single source of truth for the release flow. snackbyte-release-flow-action reads only `branch` (is this push a release branch?) and `tagSuffix` (stamped on the derived tag); `name`/`isPublicFace`/`noindex` are for application code. Adding a channel is a one-row edit here and nothing else changes; a push to a branch not listed creates no tag. `dev` is listed ahead of existing — it costs nothing until the branch exists, and means staging works the day it does.",
+  "environments": [
+    {
+      "name": "production",
+      "branch": "main",
+      "isPublicFace": true,
+      "noindex": false,
+      "tagSuffix": ""
+    },
+    {
+      "name": "staging",
+      "branch": "dev",
+      "isPublicFace": false,
+      "noindex": true,
+      "tagSuffix": "-dev"
+    }
+  ]
+}

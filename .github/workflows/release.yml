@@ -1,0 +1,37 @@
+name: release
+
+# Tags every push to a release branch listed in environments.json. Creates a tag
+# only — never a commit, never a branch push. A push to any other branch resolves
+# to is-env=false and does nothing.
+on:
+  push:
+    branches: [main, dev]
+
+permissions:
+  contents: write # required to push the tag
+
+concurrency:
+  group: release-${{ github.ref_name }} # serialize per branch — no two pushes race to a number
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # required — the derivation refuses a shallow clone, which would hide tags
+
+      - id: release
+        uses: jeff-fichtner/snackbyte-release-flow-action@v1
+        # All inputs defaulted: branch=github.ref_name, manifest=./environments.json,
+        # major-minor read from package.json's version, version-strategy=build-id.
+
+      # Deploy slot. Nothing is deployed yet — both components run from source on the
+      # host (see specs/001-discord-start-stop/quickstart.md), so there is no target.
+      # When there is one, it goes here, keyed off the tag; nothing above changes.
+      - name: Deploy
+        if: steps.release.outputs.is-env == 'true'
+        run: |
+          echo "Released ${{ steps.release.outputs.tag }} (version ${{ steps.release.outputs.version }})"
+          echo "No deploy target configured yet — add it here."
