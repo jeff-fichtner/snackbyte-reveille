@@ -1,0 +1,42 @@
+name: pages
+
+# Publishes the landing page. Only `site/` is deployed — the rest of the
+# repository (specs, agent, orchestrator) is never uploaded.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never cancel a deploy midway; let an in-flight one finish before the next.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+
+      # NOT `enablement: true` — enabling Pages needs admin permission, which the
+      # default GITHUB_TOKEN does not have, so it fails with a 403. Pages must be
+      # switched on once by hand: Settings -> Pages -> Source: GitHub Actions.
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - id: deploy
+        uses: actions/deploy-pages@v4
