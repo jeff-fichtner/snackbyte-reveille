@@ -1,0 +1,14 @@
+{
+  "name": "@reveille/contract",
+  "private": true,
+  "version": "0.1.0",
+  "description": "The seam: request/response types shared by the orchestrator and every agent. Zero dependencies, by design.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  }
+}

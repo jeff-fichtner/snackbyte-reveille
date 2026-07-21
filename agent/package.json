@@ -1,0 +1,21 @@
+{
+  "name": "@reveille/agent",
+  "private": true,
+  "version": "0.1.0",
+  "description": "One per controlled game server, welded to it. Actuates the server process; loopback only.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "$comment": "ZERO runtime dependencies, deliberately — node:http plus native fetch. `contract` is types only, erased at runtime. Do not add one without a DECISIONS entry.",
+  "dependencies": {},
+  "devDependencies": {
+    "@reveille/contract": "*"
+  },
+  "scripts": {
+    "start": "node --env-file=.env src/index.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test \"src/**/*.test.ts\""
+  }
+}

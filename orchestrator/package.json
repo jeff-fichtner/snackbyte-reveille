@@ -1,0 +1,22 @@
+{
+  "name": "@reveille/orchestrator",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Exactly one. Owns the Discord gateway and decides when; calls agents over HTTP.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "discord.js": "^14.18.0"
+  },
+  "devDependencies": {
+    "@reveille/contract": "*"
+  },
+  "scripts": {
+    "start": "node --env-file=.env src/index.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test \"src/**/*.test.ts\""
+  }
+}
