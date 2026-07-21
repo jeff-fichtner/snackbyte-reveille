@@ -9,9 +9,17 @@
  * MUST NOT appear anywhere in this file. A stop that cannot be graceful is not a
  * stop (Constitution IV, DECISIONS 009).
  */
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { dirname } from 'node:path';
 import type { AgentConfig } from './config.ts';
 import type { ServerState } from '@reveille/contract';
+
+/**
+ * Launch flags, as used to observe the server's real behaviour during M0. Changing
+ * them changes what the adapter was written against.
+ */
+const LAUNCH_ARGS = ['-useperfthreads', '-NoAsyncLoadingThread', '-UseMultithreadForDS'];
 
 /** Process names that mean "a server exists", checked in that order of likelihood. */
 const LAUNCHER_PROCESS = 'PalServer.exe';
@@ -84,4 +92,45 @@ export async function getState(config: AgentConfig): Promise<Exclude<ServerState
   if (await restAnswers(config)) return 'running';
   if (await serverProcessExists()) return 'starting';
   return 'stopped';
+}
+
+/**
+ * Launch the game server and return the moment the spawn call succeeds.
+ *
+ * **Deliberately does not wait and does not verify the process survived.** A
+ * server that dies immediately after launching is reported as started; the player
+ * finds out by failing to join (spec Assumptions, Clarifications 2026-07-21).
+ * "Started" therefore means the launch was issued without error — never a claim
+ * the server stayed up (FR-004).
+ *
+ * Throws only if the launch itself could not be issued, which the caller reports
+ * as a 500.
+ */
+export function start(config: AgentConfig): void {
+  // Checking the path exists is config validation, not waiting on the server. It
+  // turns the overwhelmingly common failure — a wrong PALWORLD_EXE_PATH — into a
+  // clear message instead of a spawn that reports success and dies silently,
+  // because `spawn` surfaces ENOENT asynchronously, after we have already
+  // returned.
+  if (!existsSync(config.palworldExePath)) {
+    throw new Error(`PALWORLD_EXE_PATH does not exist: ${config.palworldExePath}`);
+  }
+
+  const child = spawn(config.palworldExePath, LAUNCH_ARGS, {
+    cwd: dirname(config.palworldExePath),
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: true,
+  });
+
+  // The server outlives the agent: killing or restarting the agent must never
+  // take the game server with it.
+  child.unref();
+
+  // Anything that goes wrong after this point is the server's business, not the
+  // launch's. Log it and move on — reacting would be the verification the spec
+  // explicitly defers.
+  child.on('error', (error: Error) => {
+    process.stderr.write(`spawn reported an error after launch was issued: ${error.message}\n`);
+  });
 }

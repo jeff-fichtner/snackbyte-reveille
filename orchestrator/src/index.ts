@@ -17,6 +17,7 @@ import {
 } from 'discord.js';
 import { loadConfig } from './config.ts';
 import { AgentClient } from './agent-client.ts';
+import { handleStart, handleStop } from './commands.ts';
 
 const config = loadConfig();
 const agent = new AgentClient(config.agentBaseUrl);
@@ -72,10 +73,23 @@ async function handle(interaction: ChatInputCommandInteraction): Promise<void> {
   // acknowledge and a start takes far longer than that (SC-004).
   await interaction.deferReply();
 
-  // Handlers land in US1 (T018) and US2 (T021).
-  const { commandName } = interaction;
-  void agent;
-  await interaction.editReply(`\`/${commandName}\` is not implemented yet.`);
+  try {
+    switch (interaction.commandName) {
+      case 'start':
+        return await handleStart(interaction, agent);
+      case 'stop':
+        return await handleStop(interaction, agent);
+      default:
+        await interaction.editReply(`Unknown command \`/${interaction.commandName}\`.`);
+        return;
+    }
+  } catch (error: unknown) {
+    // A command must never leave the player guessing whether it was received and
+    // acted on (SC-004), so even an unexpected failure gets a reply.
+    const message = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`/${interaction.commandName} failed: ${message}\n`);
+    await interaction.editReply(`Something went wrong handling that.\n> ${message}`);
+  }
 }
 
 await registerCommands();
