@@ -26,22 +26,35 @@ test('202 and 409 both carry state `starting` and MUST read differently', () => 
 
 test('a start never claims the server is up (FR-004)', () => {
   const r = describeStart(reached(202, { state: 'starting' }));
+  // The words carry the honesty, and they are what this guards. `ok` says the
+  // COMMAND succeeded — the launch was issued without error — not that the server
+  // is up, which is precisely what the text and footnote go on to disclaim.
   assert.match(said(r), /launched, not verified/i);
   assert.doesNotMatch(said(r), /\bis (now )?(up|running|online|ready)\b/i);
-  // Amber, not green: a launch was issued, nothing succeeded yet.
-  assert.equal(r.tone, 'progress');
 });
 
-test('only a completed stop reads as success', () => {
-  assert.equal(describeStop(reached(200, { state: 'stopped' })).tone, 'ok');
+test('a start reads as done, not as pending', () => {
+  // Nothing ever follows up on a command (FR-004), so a pending-looking reply
+  // would promise an update that never arrives. Every reply must be terminal.
+  assert.equal(describeStart(reached(202, { state: 'starting' })).tone, 'ok');
+});
+
+test('nothing that failed or was refused reads as success', () => {
   for (const r of [
-    describeStart(reached(202, { state: 'starting' })),
     describeStart(reached(409, { state: 'running' })),
+    describeStart(reached(409, { state: 'starting' })),
+    describeStart(reached(500, { state: 'error' })),
+    describeStop(reached(409, { state: 'stopped' })),
     describeStop(reached(409, { state: 'starting' })),
+    describeStop(reached(500, { state: 'error' })),
     describeStart({ reached: false, reason: 'x' }),
+    describeStop({ reached: false, reason: 'x' }),
   ]) {
     assert.notEqual(r.tone, 'ok', `"${r.text}" must not read as success`);
   }
+  // And the two that genuinely did something do.
+  assert.equal(describeStart(reached(202, { state: 'starting' })).tone, 'ok');
+  assert.equal(describeStop(reached(200, { state: 'stopped' })).tone, 'ok');
 });
 
 test('already running is reported as no-op', () => {
@@ -113,7 +126,7 @@ test('the embed carries the text, and the footnote only when there is one', () =
   const withNote = toEmbed(describeStart(reached(202, { state: 'starting' }))).toJSON();
   assert.match(withNote.description ?? '', /Starting the server/);
   assert.match(withNote.footer?.text ?? '', /not verified/i);
-  assert.equal(withNote.color, 0xe8a13a);
+  assert.equal(withNote.color, 0x39d39f);
 
   const without = toEmbed(describeStart(reached(409, { state: 'running' }))).toJSON();
   assert.equal(without.footer, undefined, 'a footer appeared with no footnote to put in it');
