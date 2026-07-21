@@ -27,9 +27,31 @@ const agent = new AgentClient(config.agentBaseUrl);
  * of the Discord server may issue either command, with no role check of any kind
  * (FR-001). Trust comes from the server being private, not from a permission gate.
  */
+/**
+ * The two verbs, each naming its target as a subcommand.
+ *
+ * With one controlled server the subcommand can only take one value, so this is
+ * ahead of its trigger and a knowing deviation from Principle III. It is taken
+ * deliberately and temporarily: 002 replaces this list with one built from
+ * configuration, at which point the shape stops being ceremony and starts being
+ * load-bearing. Adding a second server must not change how the first is typed.
+ *
+ * A subcommand rather than an option because "server" is what Discord calls a
+ * guild, so `/start server:palworld` reads as the wrong thing entirely — and
+ * Discord requires a subcommand to be chosen, which enforces "never assume a
+ * default target" at the protocol rather than in our code.
+ */
 const commands = [
-  new SlashCommandBuilder().setName('start').setDescription('Start the game server.'),
-  new SlashCommandBuilder().setName('stop').setDescription('Save the world and stop the server.'),
+  new SlashCommandBuilder()
+    .setName('start')
+    .setDescription('Start a game server.')
+    .addSubcommand((s) => s.setName('palworld').setDescription('Start the Palworld server.')),
+  new SlashCommandBuilder()
+    .setName('stop')
+    .setDescription('Save the world and stop a game server.')
+    .addSubcommand((s) =>
+      s.setName('palworld').setDescription('Save the world and stop the Palworld server.'),
+    ),
 ].map((c) => c.toJSON());
 
 export async function registerCommands(): Promise<void> {
