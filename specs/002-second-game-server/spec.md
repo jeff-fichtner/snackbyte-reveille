@@ -58,6 +58,34 @@ either.
 
 ---
 
+---
+
+### User Story 3 - Told when it is actually up (Priority: P3)
+
+A player starts a server and walks away. Rather than guessing, or coming back to
+check, the system tells them when it is genuinely ready to join — and tells them
+if it never got there.
+
+**Why this priority**: Third because start and stop are usable without it, and
+because it is the first behaviour that *watches* rather than answers. It removes
+the whole class of "is it up yet?" checking, and it closes the honesty gap left by
+001: today a server that dies on launch is reported as started and nobody is ever
+told otherwise.
+
+**Independent Test**: With a server stopped, issue start and do nothing else.
+Confirm a later message reports it became joinable, without another command being
+issued. Testable with only one server, and with status not existing.
+
+**Acceptance Scenarios**:
+
+1. **Given** a player issues start and it launches, **When** the server becomes reachable, **Then** a follow-up message in the same channel reports it is up.
+2. **Given** a player issues start and it launches, **When** the server has not become reachable within the bound, **Then** a follow-up reports that it could not be confirmed, and does **not** assert that it failed.
+3. **Given** a start that was refused because the server was already running or starting, **When** the command completes, **Then** no follow-up is posted, because nothing was launched.
+4. **Given** a start that launched, **When** the immediate reply is read, **Then** it reads as in progress rather than as complete.
+5. **Given** two servers, **When** one is started, **Then** the follow-up names which server it concerns.
+
+---
+
 ### Edge Cases
 
 - **A player names a server that does not exist.** The system must reject it and say what the valid names are, rather than silently doing nothing or acting on a default.
@@ -67,6 +95,10 @@ either.
 - **Two commands naming the same server arrive at once.** Must resolve to one clean winner, exactly as for a single server today.
 - **A server is added to configuration but its host is not running an agent.** Must appear in the list of valid names and report unreachable, not vanish from the interface.
 - **The operator adds a third server.** Must require no change to the seam and no new component type — configuration plus a deployment.
+- **A launched server never becomes reachable.** The wait must end and say so honestly. "Could not confirm" is the truthful report; "it failed" is a claim the system cannot support, since the server may simply be slow.
+- **The system restarts while waiting on a launch.** The wait is lost and no follow-up arrives. That is the honest consequence of holding no durable state, and is preferable to reporting from state that survived a restart and may be stale.
+- **A player issues start twice and the second is refused.** Exactly one follow-up must arrive — for the launch that actually happened, not for the refusal.
+- **A server is stopped by a player while its start is still being waited on.** The follow-up must not claim the server is up on the strength of an observation that has since been invalidated.
 
 ## Requirements *(mandatory)*
 
@@ -77,7 +109,7 @@ either.
 - **FR-001**: Any member of the Discord server MUST be able to issue every command. No authentication, authorization, allow-list, or role check of any kind.
 - **FR-002**: Every command MUST be usable from any device with Discord, with no access to any host machine.
 - **FR-003**: The system MUST acknowledge every command promptly, before the requested action has finished.
-- **FR-004**: The system MUST report the outcome of every command, and MUST NOT claim to know that a server stayed up or became joinable.
+- **FR-004**: The system MUST report the outcome of every command. It MUST NOT claim a server is up or joinable **unless it has observed that to be true**. **Amended from 001**, which forbade the claim outright because the system had no way to know. FR-027 to FR-031 give it one; the prohibition still binds everywhere that observation has not happened, and in particular still binds the immediate reply to a start.
 - **FR-005**: A stop MUST save the world before the process exits.
 - **FR-006**: A stop that cannot guarantee the save MUST leave the server running and report the failure. The system MUST NOT force-terminate a process to satisfy a stop request.
 - **FR-007**: A stop MUST fail within a bounded time rather than waiting indefinitely.
@@ -104,6 +136,15 @@ either.
 - **FR-025**: Knowledge of which game a server runs MUST remain confined to that game's adapter. No other part of the system may branch on which game it is.
 - **FR-026**: A server whose host is unreachable MUST still appear as a valid name and be reported as unreachable, rather than being omitted.
 
+**Telling the player when it is up:**
+
+- **FR-027**: The immediate reply to a start that launched MUST read as *in progress*, not as complete. It still MUST NOT claim the server is up (FR-004).
+- **FR-028**: Once the system has determined whether a launched server became reachable, it MUST post that outcome as a **new message in the same channel** as the command, not as a silent edit — a player who walked away must be notified.
+- **FR-029**: The wait MUST be bounded. On exceeding the bound the system MUST report that it **could not confirm** the server came up, and MUST NOT assert that the launch failed — it does not know that.
+- **FR-030**: A follow-up MUST be posted only where something was actually launched. A refused start, which launched nothing, MUST NOT produce one.
+- **FR-031**: A follow-up MUST identify which server it concerns, and MUST NOT require the player to have kept the original reply in view to make sense of it.
+- **FR-032**: A pending wait MUST NOT be persisted or resumed. If the system restarts mid-wait, no follow-up is posted for that start — consistent with FR-012, and preferable to a claim made from state the system cannot trust.
+
 ### Key Entities
 
 - **Controlled server**: a game server the system can start and stop. It has a name players use to refer to it, an address the orchestrator reaches it at, and a state. Its name exists only in the orchestrator's configuration and in the Discord surface — never in the contract between components.
@@ -123,6 +164,8 @@ either.
 - **SC-007**: A port scan of the host's public address shows exactly one open port per controlled server — the port players connect through. No control interface or admin console is reachable from outside the home network.
 - **SC-008**: Adding a third controlled server requires no change to the contract between components and introduces no new component type — demonstrated by describing the exact steps without writing code.
 - **SC-009**: Behaviour of the existing Palworld server is unchanged by this feature — every 001 acceptance scenario still passes.
+- **SC-010**: A player who issues start and then puts their phone away learns whether the server became joinable without issuing another command, in 100% of launches.
+- **SC-011**: The system never states that a server is up without having observed it, and never states that a launch failed when it only failed to confirm — checked against both the success and timeout paths.
 
 ## Assumptions
 
@@ -132,6 +175,8 @@ either.
 - **Which save or session a server loads is out of scope.** That is manual operator work on the game server, documented separately.
 - **Status reports what can be observed at the moment of asking**, and nothing is remembered between requests — the same posture as every other command.
 - **Satisfactory's control interface is reached over loopback with a self-signed certificate**, which the adapter must accept for that host only. This is an implementation consequence of the game's design, not a relaxation of FR-013 or FR-014.
-- **"Started" continues to mean the launch was issued without error.** No server's adapter verifies that the process survived or became joinable.
+- **The immediate reply to a start still means only that the launch was issued.** No adapter verifies anything at launch time. What changes is that the system now *follows up* — the claim that a server is up is made later, by the orchestrator, on the strength of an observation, and never at launch.
+- **Waiting is done by asking repeatedly, not by being told.** No game server notifies anything, so the system polls until it sees the server reachable or gives up. Nothing about that wait is remembered if the system restarts.
+- **A follow-up is a new message rather than an edit**, because a silent edit does not notify, and the entire point is to reach a player who walked away.
 - **The Discord server remains private and trusted**, which is what continues to make "no authorization" acceptable across any number of controlled servers.
 - **The naming of servers is for humans**, and does not enter the contract. Renaming a server is a configuration change with no effect on any component boundary.
