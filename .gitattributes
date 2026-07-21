@@ -1,0 +1,16 @@
+# Pin line endings to LF in the repository.
+#
+# This repo is edited on Windows but the orchestrator runs on Linux (WSL2) and
+# .specify/ is full of bash scripts, which break outright with CRLF. Without this,
+# a checkout can flip endings and every touched file shows as wholly modified —
+# 566 insertions and 566 deletions of identical content — which buries real diffs
+# and makes review worthless.
+* text=auto eol=lf
+
+# Bash scripts must be LF regardless of platform or they will not execute.
+*.sh text eol=lf
+
+# Never munge binaries.
+*.png binary
+*.jpg binary
+*.ico binary
