@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "1",
+  "feature": "001-discord-start-stop",
+  "workspaceId": "90141363864",
+  "spaceId": "90146629832",
+  "listId": "901418316697",
+  "statusMapping": {
+    "not-started": "backlog",
+    "in-progress": "in development",
+    "done": "shipped"
+  },
+  "card": {
+    "id": "86bb12qqz",
+    "hash": "sha256:da64cfc81c723503c6ad8727407507084e5d07b65160e5525227818274f1dc73"
+  },
+  "userStories": [
+    {
+      "us": "US1",
+      "id": "86bb12qu0",
+      "hash": "sha256:4d436a3f1a8e27b872cae181da0a0f74ee9f52f5bcaba2ad0f118ff995a18af6",
+      "dependsOn": []
+    },
+    {
+      "us": "US2",
+      "id": "86bb12qx9",
+      "hash": "sha256:6998cd6575e7f4a2357a040fa108d5150072b3a181d64e812ed2be5640f806e9",
+      "dependsOn": [
+        "US1"
+      ]
+    }
+  ]
+}
