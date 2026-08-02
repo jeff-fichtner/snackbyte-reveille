@@ -8,6 +8,12 @@
 
 **Input**: User description: "Control a second game server — a Satisfactory dedicated server — from the same Discord bot that already controls Palworld, so either player can start and stop either game from any device. Today `/start` and `/stop` act on the single Palworld server. With two servers the commands must name which one. Constraints that carry over unchanged from 001 and must not be weakened: a stop saves before it exits and fails rather than force-killing; the system never stops a server on its own; 'started' means the launch was issued without error; no authentication or authorization of any kind; no state that outlives a restart; each agent binds loopback only. Architecturally this must be a new row, not a new kind of thing — the contract does not change, an agent's base URL is its identity, and a second controlled server is a second agent at a second address in configuration. The agent today hardcodes the Palworld adapter; it needs the adapter selected by configuration so one binary can be deployed twice. Satisfactory's dedicated server exposes an official HTTPS API on loopback covering server state, save management and shutdown, structurally the same shape the Palworld adapter already uses. Success is: either player types the start command naming Satisfactory, from a phone, and joins that server; types the stop command and the world is saved and the server exits; and doing so does not change how Palworld behaves in any way. Adding a third game later must remain the same shape of work. Also wanted: a status slash command."
 
+## Clarifications
+
+### Session 2026-08-02
+
+- Q: For US3, what does "the server is up" mean — the control API reporting `running`, or the game being actually joinable? → A: The control API reporting `running` — the same signal `/status` derives. The follow-up reports the observed running state and does **not** separately probe joinability, consistent with 001's posture that the system never verifies a player can connect. "Running" means the server is serving (a real improvement over "launched"); it is not a guarantee of joinability, and the follow-up is worded accordingly ("running — try joining").
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Start and stop a named server (Priority: P1)
@@ -78,7 +84,7 @@ issued. Testable with only one server, and with status not existing.
 
 **Acceptance Scenarios**:
 
-1. **Given** a player issues start and it launches, **When** the server becomes reachable, **Then** a follow-up message in the same channel reports it is up.
+1. **Given** a player issues start and it launches, **When** the server's control API reports `running`, **Then** a follow-up message in the same channel reports it is running (a join can be attempted).
 2. **Given** a player issues start and it launches, **When** the server has not become reachable within the bound, **Then** a follow-up reports that it could not be confirmed, and does **not** assert that it failed.
 3. **Given** a start that was refused because the server was already running or starting, **When** the command completes, **Then** no follow-up is posted, because nothing was launched.
 4. **Given** a start that launched, **When** the immediate reply is read, **Then** it reads as in progress rather than as complete.
@@ -139,7 +145,7 @@ issued. Testable with only one server, and with status not existing.
 **Telling the player when it is up:**
 
 - **FR-027**: The immediate reply to a start that launched MUST read as *in progress*, not as complete. It still MUST NOT claim the server is up (FR-004).
-- **FR-028**: Once the system has determined whether a launched server became reachable, it MUST post that outcome as a **new message in the same channel** as the command, not as a silent edit — a player who walked away must be notified.
+- **FR-028**: Once the system observes a launched server's control API reporting `running` (the `/status` signal), or the bound elapses, it MUST post that outcome as a **new message in the same channel** as the command, not as a silent edit — a player who walked away must be notified. "Reachable" here means the control API answers; the system does not separately verify the game is joinable (FR-004, 001 posture).
 - **FR-029**: The wait MUST be bounded. On exceeding the bound the system MUST report that it **could not confirm** the server came up, and MUST NOT assert that the launch failed — it does not know that.
 - **FR-030**: A follow-up MUST be posted only where something was actually launched. A refused start, which launched nothing, MUST NOT produce one.
 - **FR-031**: A follow-up MUST identify which server it concerns, and MUST NOT require the player to have kept the original reply in view to make sense of it.
