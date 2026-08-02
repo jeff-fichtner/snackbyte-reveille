@@ -2,11 +2,14 @@
   "schemaVersion": "1",
   "feature": "001-discord-start-stop",
   "workspaceId": "90141363864",
-  "spaceId": "90146629832",
-  "listId": "901418316697",
+  "spaceId": "90146746995",
+  "listId": "901418532266",
   "statusMapping": {
-    "not-started": "backlog",
-    "in-progress": "in development",
+    "open": "backlog",
+    "in-design": "in design",
+    "ready": "ready for development",
+    "in-development": "in development",
+    "in-review": "in review",
     "done": "shipped"
   },
   "card": {

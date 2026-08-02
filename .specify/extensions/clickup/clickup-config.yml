@@ -1,2 +1,5 @@
-space: "snackbyte-reveille" # ClickUp space the shared list lives in
-list: "Features" # the one shared list all feature-cards go into
+# ClickUp target for this repo — where the shared feature-card list lives.
+# NO IDs or credentials here; the connected ClickUp MCP server handles auth and
+# runtime IDs land in each feature's specs/<feature>/.clickup-sync.json manifest.
+space: "products"   # ClickUp space the shared list lives in
+list: "Roadmap"     # the one shared list all reveille feature-cards go into
