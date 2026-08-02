@@ -1,0 +1,6 @@
+catalogs:
+- name: snackbyte
+  url: https://raw.githubusercontent.com/jeff-fichtner/snackbyte-speckit-engine/main/catalog.json
+  priority: 10
+  install_allowed: true
+  description: ''

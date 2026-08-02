@@ -1,0 +1,44 @@
+schema_version: "1.0"
+
+extension:
+  # Formerly TWO extensions: `specify-review-loop` (spec + code targets) and `analyze-autofix`
+  # (the write half of /speckit-analyze). Merged 2026-07-26 under Constitution VII: they were one
+  # algorithm — critique, fix every issue with a single obvious correct resolution, re-check,
+  # surface only judgment calls — differing only in bindings (what is read, who produced the
+  # critique, loop depth). `id` rules still apply: it must not collide with a core command name
+  # (0.13+ rejects `analyze`, `specify`, `plan`, … outright) and must equal the namespace of
+  # every command below (`speckit.<id>.<verb>`).
+  id: review-loop
+  name: "Review Loop"
+  version: "1.0.0"
+  description: "The engine's review stage (Constitution VII: work → self-review → self-test → handoff) — one recursive loop with three targets: `spec` reviews a just-written spec.md; `analysis` applies /speckit-analyze's cross-artifact findings to spec/plan/tasks and re-checks until clean (formerly the analyze-autofix extension); `code` reviews implemented code + tests for /speckit-engine-verify. Fixes every issue with a single obvious correct resolution, never decides product questions, always terminates, and ends with a doctrine-shaped handoff."
+  author: snackbyte
+  license: MIT
+
+requires:
+  speckit_version: ">=0.13.0"
+
+provides:
+  commands:
+    - name: speckit.review-loop.run
+      file: commands/speckit.review-loop.run.md
+      description: "Recursively review-and-fix the target artifact (spec | analysis | code) until clean or blocked on the user, then hand off"
+
+hooks:
+  after_specify:
+    command: speckit.review-loop.run
+    optional: false
+    priority: 5
+    prompt: "Recursively review the spec and fix unambiguous issues?"
+    description: "Review the just-written spec (target: spec) — must run first at this event, before provision/sync/clarify"
+  after_analyze:
+    command: speckit.review-loop.run
+    optional: false
+    priority: 10
+    prompt: "Apply unambiguous analysis fixes and re-present the results?"
+    description: "Apply the analysis findings (target: analysis) — runs before the tracker sync that records the analyzed marker"
+
+tags:
+  - "review"
+  - "autofix"
+  - "core"

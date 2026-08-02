@@ -1,42 +1,105 @@
 schema_version: "1.0"
 
 extension:
-  # id must match the command namespace below (speckit.<id>.<verb>). Spec Kit
-  # enforces this from 0.13.x; it was `clickup-sync`, which no longer validated
-  # against commands named `speckit.clickup.*`.
+  # Must equal the namespace of every command below: Spec Kit rejects the install
+  # outright ("must use extension namespace") unless each primary command matches
+  # `speckit.<id>.<verb>`. The commands have always been `speckit.clickup.*`, so
+  # the id is `clickup` and the install directory follows it. Do not rename this
+  # back to `clickup-sync` without renaming every command with it.
   id: clickup
-  name: "ClickUp Task Sync"
+  name: "ClickUp Plug"
   version: "1.0.0"
-  description: "Mirrors each Spec Kit feature into ClickUp as one feature-card (a ClickUp task) in a single shared project list, with a subtask per user story (carrying native dependency links), a markdown checkbox list of the tasks.md lines, a verbose description body, and a status derived from the feature's Spec Kit stage. One-way (repo → ClickUp), idempotent, MCP-only."
+  description: "The ClickUp tracker plug for snackbyte-speckit-engine. Mirrors each Spec Kit feature into ClickUp as one feature-card in a shared list, with a subtask per user story (native dependency links), a markdown checkbox list of the tasks.md lines, a verbose body, and the engine's six-state lifecycle status (open→in-design→ready→in-development→in-review→done) advancing on every command. One-way (repo → ClickUp), idempotent, MCP-only. All deterministic lifecycle logic lives in the `engine` extension; this plug only orchestrates ClickUp MCP calls."
   author: snackbyte
   license: MIT
 
 requires:
-  # Namespace validation landed in 0.13.x; verified against 0.13.1.
   speckit_version: ">=0.13.0"
+
+config:
+  # Shipped defaults (lowest layer). Consumer values live in clickup-config.yml (committed,
+  # repo-level) and local-config.yml (gitignored, machine-local) — the CLI's update-protected
+  # names; `specify extension update` preserves them and replaces everything else.
+  defaults:
+    enabled: true
+    provenance-mode: "A"
+  # This plug calls the engine's helpers at .specify/extensions/engine/scripts/bash/*.sh.
+  # Install `engine` alongside it.
+  extensions:
+    - engine
 
 provides:
   commands:
     - name: speckit.clickup.provision
       file: commands/speckit.clickup.provision.md
-      description: "Find-or-create the ClickUp space + shared list and record the target IDs and status mapping in the feature manifest"
+      description: "Find-or-create the ClickUp space + shared list, record targets + the six-state status mapping, and create the feature-card in `open`"
     - name: speckit.clickup.sync
       file: commands/speckit.clickup.sync.md
-      description: "Make the feature's ClickUp card (body, US-subtasks, checklist, dependencies, status) match the repo; idempotent, one-way"
+      description: "Make the feature's card (body, US-subtasks, checklist, dependencies, six-state status) match the repo; idempotent, one-way; runs on every command"
+    - name: speckit.clickup.design-rules
+      file: commands/speckit.clickup.design-rules.md
+      description: "Inspect the real workspace and propose a project-specific sync ruleset for approval; defaults apply when absent (US7)"
 
 hooks:
-  after_plan:
-    command: speckit.clickup.provision
-    optional: true
-    description: "Provision the ClickUp target after planning"
+  after_specify:
+    - command: speckit.clickup.provision
+      optional: false
+      priority: 10
+      prompt: "Provision the ClickUp space + shared list for this feature?"
+      description: "Provision the ClickUp target after specify (card created in open)"
+    - command: speckit.clickup.sync
+      optional: false
+      priority: 15
+      prompt: "Sync this feature's card to ClickUp (→ in-design)?"
+      description: "Sync the feature-card after specify (→ in-design)"
+  after_clarify:
+    command: speckit.clickup.sync
+    optional: false
+    priority: 15
+    prompt: "Re-sync this feature's card with the clarified spec?"
+    description: "Re-mirror the spec after clarifications are encoded into it; holds in-design"
   after_tasks:
     command: speckit.clickup.sync
-    optional: true
-    description: "Sync the feature-card after task generation"
-  after_implement:
+    optional: false
+    priority: 15
+    prompt: "Sync this feature's card to ClickUp (stays in-design)?"
+    description: "Sync the feature-card after task generation (holds or returns to in-design; tasks written ≠ ready; peels stale analyzed/verifyPassed claims)"
+  after_analyze:
     command: speckit.clickup.sync
-    optional: true
-    description: "Sync the feature-card after implementation"
+    optional: false
+    priority: 15
+    prompt: "Sync this feature's card to ClickUp (→ ready)?"
+    description: "Sync after analyze — sets the analyzed marker; card → ready"
+  before_implement:
+    command: speckit.clickup.sync
+    optional: false
+    priority: 15
+    prompt: "Sync this feature's card to ClickUp (→ in-development)?"
+    description: "Sync after the git checkpoint, before code — sets implementStarted; card → in-development"
+  after_converge:
+    command: speckit.clickup.sync
+    optional: false
+    priority: 15
+    prompt: "Sync this feature's card to ClickUp (stays in-development)?"
+    description: "Re-sync after converge (stays in-development until /speckit-engine-verify passes)"
+  before_verify:
+    command: speckit.clickup.sync
+    optional: false
+    priority: 15
+    prompt: "Freshen this feature's card before certification?"
+    description: "Freshen the card (checklist, subtasks) before certification; holds in-development"
+  after_verify:
+    command: speckit.clickup.sync
+    optional: false
+    priority: 15
+    prompt: "Sync this feature's card to ClickUp (→ in-review)?"
+    description: "Sync after a passing verify — derive reads verifyPassed; card → in-review"
+  after_close:
+    command: speckit.clickup.sync
+    optional: false
+    priority: 15
+    prompt: "Sync this feature's card to ClickUp (→ done)?"
+    description: "Final sync at close-out — derive reads closedOut; card + subtasks → done"
 
 tags:
   - "clickup"

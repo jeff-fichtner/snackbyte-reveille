@@ -7,16 +7,23 @@ drives the generic lifecycle, this plug turns those lifecycle events into real C
 **The tracker interface a plug implements** (what the engine asks any plug to do):
 
 - **resolve-target / status-mapping** — find-or-create the tracker's container and map the engine's
-  logical states onto the tracker's real statuses (here: provision the ClickUp space + shared list,
-  map `not-started`/`in-progress`/`done` onto the list's statuses).
+  **six logical states** (`open · in-design · ready · in-development · in-review · done`) onto the
+  tracker's real statuses (here: provision the ClickUp space + shared list, map the six onto the
+  list's statuses, falling back to three where a list can't express six).
 - **create/update item** — materialize a feature and its user stories as tracker items.
 - **set-checklist** — render the feature's `tasks.md` lines onto the item.
 - **link-dependency** — reflect user-story dependencies.
-- **update-status** — write the derived lifecycle state.
-- **attach-provenance** — (future) link the commits/PRs that shipped the feature.
+- **update-status** — write the derived lifecycle state (card: six states; subtasks: three).
+- **attach-provenance** — link the commits that shipped the feature (Option A, hash-deduped).
 
 Another plug (Linear, a local file, …) implements the same interface its own way; the engine does
 not change. This plug's implementation follows.
+
+> **Seam, not machinery (research Decision 7).** The interface above is the boundary that lets a
+> second plug slot in. The engine's **local plug** (zero-tracker file mode) and **multi-plug
+> broadcasting** are specified (FR-032/SC-013) but deliberately **not built** — ClickUp is the one
+> concrete plug today. An uninstalled/disabled plug is a silent no-op, not an error
+> (Constitution VI), so adding a plug later is additive, never a rework.
 
 ---
 
@@ -46,15 +53,19 @@ Shared List (one per repo)
 
 ## Configure
 
-Edit [`config.yml`](config.yml) and set your `space` and `list` names (no IDs, no secrets).
-Provisioning refuses to run while the `<...>` placeholders remain.
+Config is layered, highest wins: env (`SPECKIT_CLICKUP_<KEY>`) → `local-config.yml`
+(gitignored, machine-local) → [`clickup-config.yml`](clickup-config.yml) (committed,
+consumer-owned) → shipped defaults in `extension.yml`. Set your `space` and `list` names in
+`clickup-config.yml` (no IDs, no secrets — provision's ask-once flow writes it for you on an
+unconfigured repo). Both consumer files survive `specify extension update` (CLI config-rescue
+naming); everything else is replaced on update.
 
 ## Commands & hooks
 
 | Command | Hook | What it does |
 |---|---|---|
-| `/speckit-clickup-provision` | `after_plan` (optional) | Find-or-create the space + shared list, resolve & record the status mapping and target IDs into the feature manifest. |
-| `/speckit-clickup-sync` | `after_tasks`, `after_implement` (optional) | Make the feature-card (body, US-subtasks, checklist, dependencies, status) match the repo. Idempotent — a no-op run makes zero ClickUp writes. |
+| `/speckit-clickup-provision` | `after_specify` (required) | Find-or-create the space + shared list, resolve & record the status mapping and target IDs into the feature manifest; card created in `open`. |
+| `/speckit-clickup-sync` | every lifecycle moment, required — `after_specify`, `after_tasks`, `after_analyze` (sets `analyzed` → `ready`), `before_implement` (sets `implementStarted` → `in-development`), `after_converge`, `before_verify`, `after_verify` (→ `in-review`), `after_close` (→ `done`) | Make the feature-card (body, US-subtasks, checklist, dependencies, status) match the repo. Idempotent — a no-op run makes zero ClickUp writes. Opt out per repo via `enabled: false` in config. |
 
 ## State
 
@@ -68,8 +79,8 @@ IDs are committed. Nothing else in this package contains IDs or secrets.
 - **One-way**: the sync overwrites ClickUp toward the repo; it never writes back to
   `tasks.md` or any repo artifact, and a hand-edit in ClickUp is reverted on the next sync.
 - **MCP-only**: no custom ClickUp API/auth code.
-- **Portable**: set only `config.yml` to retarget a different workspace/space/list — no code
-  edits.
+- **Portable**: set only `clickup-config.yml` to retarget a different workspace/space/list — no
+  code edits.
 - **Scaffolding-only**: this lives entirely under `.specify/` + `.claude/` + per-feature
   manifests; it introduces no ClickUp references into shipped app source, docs, or CI.
 

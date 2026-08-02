@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Tests for clickup-parse-tasks.sh — tasks.md → US-grouped JSON.
-# Run: bash .specify/extensions/clickup/scripts/bash/clickup-parse-tasks.test.sh
+# Tests for parse-tasks.sh — tasks.md → US-grouped JSON.
+# Run: bash .specify/extensions/engine/scripts/bash/parse-tasks.test.sh
 set -uo pipefail
 
 DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-PARSE="$DIR/clickup-parse-tasks.sh"
+PARSE="$DIR/parse-tasks.sh"
 FAIL_F="$(mktemp)"
 ok()  { printf '  ok   %s\n' "$1"; }
 bad() { echo x >> "$FAIL_F"; printf '  FAIL %s — %s\n' "$1" "$2"; }
@@ -74,6 +74,28 @@ fi
 
 # --- Fixture 4: missing file → exit 2 ---
 if bash "$PARSE" --file "$TMP/nope.md" >/dev/null 2>&1; then bad "T4" "missing file did not error"; else ok "T4 missing file → non-zero exit"; fi
+
+# --- Fixture 5: a non-US phase AFTER a US phase clears the fallback (regression) ---
+# The phase_us fallback used to be sticky, so unlabelled Polish tasks trailing a
+# "User Story N" phase were silently attributed to that story.
+cat > "$TMP/trailing.md" <<'EOF'
+# Tasks
+
+## Phase 1: User Story 1 - First (Priority: P1)
+- [ ] T001 Story task, no explicit marker
+
+## Phase 2: Polish
+- [ ] T002 Polish task, belongs to nobody
+EOF
+out5="$(bash "$PARSE" --file "$TMP/trailing.md")"
+if have_jq; then
+    [[ "$(jget "$out5" '.groups[]|select(.us=="US1").items|map(.id)|join(",")')" == "T001" ]] \
+        && ok "T5 US1 keeps only its own task" || bad "T5" "US1 absorbed a later-phase task"
+    [[ "$(jget "$out5" '.groups[]|select(.us=="unattributed").items[0].id')" == "T002" ]] \
+        && ok "T5 trailing Polish task is unattributed" || bad "T5" "T002 not unattributed"
+else
+    printf '%s' "$out5" | grep -q '"us":"unattributed"' && ok "T5 (no-jq) unattributed present" || bad "T5" "unattributed missing"
+fi
 
 n="$(wc -l < "$FAIL_F" | tr -d "[:space:]")"; n="${n:-0}"
 echo ""

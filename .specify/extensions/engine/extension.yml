@@ -1,0 +1,66 @@
+schema_version: "1.0"
+
+extension:
+  id: engine
+  name: "Spec Kit Lifecycle Engine"
+  version: "1.0.0"
+  description: "The tracker-agnostic Spec Kit lifecycle engine. Keeps the lifecycle moving on its own — required hooks chain specify→clarify, plan→tasks→analyze, and implement→converge→verify, leaving only clarify→plan, analyze→implement, and close as deliberate human steps. Derives a feature's six-state lifecycle (open→in-design→ready→in-development→in-review→done) from repo artifacts and recorded lifecycle markers, parses tasks.md, maps logical states onto a tracker's real status names (with a three-state fallback), keeps the idempotence manifest, renders commit provenance, and drives the verify + close-out ceremonies. Talks to NO tracker itself — tracker I/O belongs to plugs (e.g. the clickup plug)."
+  author: snackbyte
+  license: MIT
+
+requires:
+  speckit_version: ">=0.13.0"
+
+provides:
+  commands:
+    - name: speckit.engine.verify
+      file: commands/speckit.engine.verify.md
+      description: "Certify a completed feature (recursive code review + unit gate + automatable E2E), then advance it to in-review (US8)"
+    - name: speckit.engine.close
+      file: commands/speckit.engine.close.md
+      description: "Terminal close-out: re-run the gate, surface manual tasks for sign-off, mark done, final sync, commit (US2)"
+
+# The engine keeps the lifecycle moving on its own: each phase's completion triggers the next
+# step as a REQUIRED hook — specify → clarify, plan → tasks → analyze, implement → converge,
+# converge → verify. (Core-command refs like speckit.tasks are valid hook targets; the CLI
+# validates but does not rewrite them.) The human decision points that remain deliberate:
+# clarify → plan (you answer questions first), analyze → implement, and close (waits on
+# sign-off — no hook can time it). verify + close also DISPATCH hook events of their own
+# (verify: `before_verify` at start + `after_verify` on pass; close: `after_close` on
+# sign-off), which plugs (e.g. clickup) wire their syncs into.
+hooks:
+  after_specify:
+    command: speckit.clarify
+    optional: false
+    priority: 20
+    prompt: "Clarify the fresh spec now?"
+    description: "Auto-continue the lifecycle: clarify the fresh spec (runs after review-loop + provision + sync)"
+  after_plan:
+    command: speckit.tasks
+    optional: false
+    priority: 10
+    prompt: "Generate tasks.md from the plan now?"
+    description: "Auto-continue the lifecycle: generate tasks.md from the plan"
+  after_tasks:
+    command: speckit.analyze
+    optional: false
+    priority: 20
+    prompt: "Analyze the artifacts for consistency now?"
+    description: "Auto-continue the lifecycle: analyze the artifacts (runs after the checklist sync; analyze's own hooks then advance the card to ready)"
+  after_implement:
+    command: speckit.converge
+    optional: false
+    priority: 10
+    prompt: "Converge the codebase against the spec now?"
+    description: "Auto-continue the lifecycle: converge the codebase against the spec (then converge triggers verify)"
+  after_converge:
+    command: speckit.engine.verify
+    optional: false
+    priority: 20
+    prompt: "Certify the feature (review + gate + E2E) and advance to in-review?"
+    description: "Certify the converged feature (review + gate + automatable E2E); on pass the card advances to in-review"
+
+tags:
+  - "speckit"
+  - "lifecycle"
+  - "engine"

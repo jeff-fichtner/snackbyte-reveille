@@ -24,3 +24,6 @@ specs/**/*.html
 # os / editor
 .DS_Store
 Thumbs.db
+
+# spec-kit extension machine-local overrides
+.specify/extensions/*/local-config.yml

@@ -9,7 +9,7 @@
 # go in the "unattributed" group. Phase headings are used as a fallback grouping hint only
 # when a line carries no [US#] marker but sits under a "User Story N" phase heading.
 #
-# Usage:  clickup-parse-tasks.sh [--file <tasks.md>]
+# Usage:  parse-tasks.sh [--file <tasks.md>]
 #   --file  path to tasks.md (default: <active feature dir>/tasks.md)
 #
 # Output (JSON):

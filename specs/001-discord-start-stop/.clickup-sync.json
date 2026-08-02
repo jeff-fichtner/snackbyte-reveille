@@ -28,5 +28,11 @@
         "US1"
       ]
     }
-  ]
+  ],
+  "lifecycle": {
+    "analyzed": true,
+    "implementStarted": true,
+    "verifyPassed": true,
+    "closedOut": true
+  }
 }

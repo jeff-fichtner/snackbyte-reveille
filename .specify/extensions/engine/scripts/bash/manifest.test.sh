@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Tests for clickup-manifest.sh — manifest read/merge/write + stable hashing.
-# Run: bash .specify/extensions/clickup/scripts/bash/clickup-manifest.test.sh
+# Tests for manifest.sh — manifest read/merge/write + stable hashing.
+# Run: bash .specify/extensions/engine/scripts/bash/manifest.test.sh
 set -uo pipefail
 
 DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-M="$DIR/clickup-manifest.sh"
+M="$DIR/manifest.sh"
 FAIL_F="$(mktemp)"
 ok()  { printf '  ok   %s\n' "$1"; }
 bad() { echo x >> "$FAIL_F"; printf '  FAIL %s — %s\n' "$1" "$2"; }
@@ -62,6 +62,33 @@ cnt="$(jq '[.userStories[]|select(.us=="US1")]|length' "$D/.clickup-sync.json")"
 
 # --- get on absent manifest → empty, no crash ---
 [[ -z "$(bash "$M" get --dir "$TMP/none" listId)" ]] && ok "get on absent manifest → empty" || bad "absent" "not empty"
+
+# --- lifecycle markers (US3): set/get, default false, no clobber of other fields ---
+[[ "$(bash "$M" get-lifecycle --dir "$D" verifyPassed)" == "false" ]] && ok "lifecycle default → false" || bad "lc-default" "$(bash "$M" get-lifecycle --dir "$D" verifyPassed)"
+bash "$M" set-lifecycle --dir "$D" --key implementStarted --value true
+[[ "$(bash "$M" get-lifecycle --dir "$D" implementStarted)" == "true" ]] && ok "set implementStarted → true" || bad "lc-set" "fail"
+bash "$M" set-lifecycle --dir "$D" --key analyzed --value true
+[[ "$(bash "$M" get-lifecycle --dir "$D" analyzed)" == "true" ]] && ok "set analyzed → true" || bad "lc-analyzed" "fail"
+bash "$M" set-lifecycle --dir "$D" --key analyzed --value false
+[[ "$(bash "$M" get-lifecycle --dir "$D" analyzed)" == "false" ]] && ok "clear analyzed → false" || bad "lc-analyzed-clear" "fail"
+bash "$M" set-lifecycle --dir "$D" --key verifyPassed --value true
+[[ "$(bash "$M" get-lifecycle --dir "$D" implementStarted)" == "true" ]] && ok "second marker preserves first" || bad "lc-preserve" "clobbered"
+[[ "$(bash "$M" get --dir "$D" listId)" == "L" ]] && ok "lifecycle set preserves targets" || bad "lc-targets" "clobbered"
+if bash "$M" set-lifecycle --dir "$D" --key bogus --value true >/dev/null 2>&1; then bad "unknown lifecycle key should fail" "exit0"; else ok "unknown lifecycle key → non-zero exit"; fi
+
+# --- provenance hash (US6): set without disturbing card.id/hash ---
+bash "$M" set-card --dir "$D" --id CARD1 --hash sha256:cardh
+bash "$M" set-provenance-hash --dir "$D" --hash sha256:provh
+[[ "$(jq -r '.card.provenanceHash' "$D/.clickup-sync.json")" == "sha256:provh" ]] && ok "provenanceHash set" || bad "prov-set" "fail"
+[[ "$(jq -r '.card.id' "$D/.clickup-sync.json")" == "CARD1" ]] && ok "provenanceHash preserves card.id" || bad "prov-cardid" "clobbered"
+
+# set-card must MERGE, not replace — a later status/body change must not drop provenanceHash
+bash "$M" set-card --dir "$D" --id CARD1 --hash sha256:newhash
+[[ "$(jq -r '.card.provenanceHash' "$D/.clickup-sync.json")" == "sha256:provh" ]] && ok "set-card preserves provenanceHash" || bad "setcard-merge" "provenanceHash dropped"
+[[ "$(jq -r '.card.hash' "$D/.clickup-sync.json")" == "sha256:newhash" ]] && ok "set-card still updates hash" || bad "setcard-hash" "not updated"
+
+# --- schemaVersion stays "1" after all additive writes ---
+[[ "$(jq -r '.schemaVersion' "$D/.clickup-sync.json")" == "1" ]] && ok "schemaVersion stays 1 (additive)" || bad "schema" "bumped"
 
 n="$(wc -l < "$FAIL_F" | tr -d "[:space:]")"; n="${n:-0}"
 echo ""

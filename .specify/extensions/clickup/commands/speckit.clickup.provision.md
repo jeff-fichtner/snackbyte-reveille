@@ -11,27 +11,37 @@ the connected ClickUp MCP server — no API/auth code.
 
 ## Preconditions
 
+- **The engine extension is installed** — `.specify/extensions/engine/scripts/bash/manifest.sh`
+  exists. If not, **stop immediately with zero tracker writes**: "The clickup plug requires the
+  engine extension. Install it: `specify extension add engine`."
 - The ClickUp MCP server is connected.
-- `.specify/extensions/clickup/config.yml` resolves to real `space`/`list` values via the
-  placeholder flow below.
+- The config resolution below yields real `space`/`list` values (or the ask-once flow obtains
+  them).
 
-## Config resolution (placeholder → ask → remember)
+## Config resolution (layered → absent → ask → remember)
 
-Before doing anything else, resolve `space` and `list` from
-`.specify/extensions/clickup/config.yml`:
+Config is layered, highest wins: env (`SPECKIT_CLICKUP_<KEY>`) > `local-config.yml`
+(gitignored, machine-local) > `clickup-config.yml` (committed, consumer-owned) >
+`extension.yml` `config.defaults`. The shipped extension carries **no** space/list — an
+unconfigured repo simply has no values yet. (Migration grace: legacy
+`config.local.yml`/`config.yml` are read only when none of the new files exist.) Resolve
+`space` and `list` from the merged view:
 
-1. If `enabled: false` is set in `config.yml`, the user has previously **declined** ClickUp
-   sync for this repo. **Silently do nothing and exit 0** — do NOT ask again. (This is the
-   "know not to ask them again" state.)
-2. If both `space` and `list` hold real values (not `<...>` placeholders), use them — proceed
-   to the Steps below. Do not ask.
-3. If either is still a `<...>` placeholder, **ask the user once**: "This repo isn't wired to a
-   ClickUp space/list yet. Give me the ClickUp space name and shared-list name to sync into, or
-   say you don't want ClickUp sync here."
-   - **If they provide values** → write them into `config.yml` (replace the placeholders) and
-     continue. The saved values mean this question is never asked again.
-   - **If they decline** → set `enabled: false` in `config.yml` and record a short note, then
-     exit 0. Never ask again on subsequent runs (handled by rule 1). Do not sync.
+1. If the merged view has `enabled: false`, the user has previously **declined** ClickUp sync
+   for this repo. **Silently do nothing and exit 0** — do NOT ask again. (This is the "know not
+   to ask them again" state.)
+2. If both `space` and `list` resolve to real values (absent ≠ real; a leftover `<...>`
+   placeholder from a migrated repo also ≠ real), use them — proceed to the Steps below. Do
+   not ask.
+3. Otherwise, **ask the user once**: "This repo isn't wired to a ClickUp space/list yet. Give
+   me the ClickUp space name and shared-list name to sync into, or say you don't want ClickUp
+   sync here."
+   - **If they provide values** → write them into **`clickup-config.yml`** (committed,
+     repo-level — the whole team is provisioned once; space/list names are locations, never
+     secrets). Machine-personal deviations belong in `local-config.yml`. The saved values mean
+     this question is never asked again.
+   - **If they decline** → set `enabled: false` in `clickup-config.yml` and record a short
+     note, then exit 0. Never ask again on subsequent runs (handled by rule 1). Do not sync.
    - Only ask **once per run**; if the user gives an unusable answer, stop with a clear message
      rather than re-prompting in a loop.
 
@@ -40,7 +50,7 @@ Before doing anything else, resolve `space` and `list` from
 1. **Resolve the active feature** and manifest path:
 
    ```bash
-   .specify/extensions/clickup/scripts/bash/clickup-manifest.sh path
+   .specify/extensions/engine/scripts/bash/manifest.sh path
    ```
 
 2. **Read config** — use the `space`/`list` values resolved by the "Config resolution" block
@@ -59,26 +69,42 @@ Before doing anything else, resolve `space` and `list` from
    - Otherwise call `clickup_create_task`'s sibling `clickup_create_list` with
      `name: config.list`, `space_id: <space id>`; record the new list id.
 
-5. **Resolve the status mapping** — read the list's available statuses (via
-   `clickup_get_list`). Map the three logical states onto real statuses:
-   - `not-started` → the list's first not-done/open status,
-   - `done` → the list's closed/done status,
-   - `in-progress` → a distinct middle status if the list has one; otherwise reuse the open
-     status is NOT acceptable — the three logical states MUST map to statuses that can be told
-     apart. If the list cannot represent all three distinctly, **stop** and print exactly which
-     statuses the list needs (name them), and record nothing (fail-loud; do not sync to an
-     unusable mapping).
+5. **Resolve the six-state status mapping** — read the list's available statuses (via
+   `clickup_get_list`) and map the engine's **six logical states** onto real status names:
+   `open · in-design · ready · in-development · in-review · done`.
+   - **Prefer the merged config's `statuses:` block** if present — it explicitly names the actual
+     status for each logical state. Validate every named status actually exists on the list;
+     if one doesn't, **stop** and name the mismatch.
+   - **Otherwise resolve a best-effort mapping** from the list's real statuses (e.g. an open-type
+     status → `open`, a done/closed-type → `done`, distinct middle statuses → the in-between
+     states in order).
+   - **Degrade, don't fail**: a list without six distinct statuses maps to the three-state floor
+     (not-started / in-progress / done) — `open`/`in-design`/`ready` → the open status,
+     `in-development`/`in-review` → a middle status, `done` → the done status. Use
+     `status-map.sh` semantics. The list only needs to distinguish those three; **stop**
+     (fail-loud) only if it cannot even represent three distinct states, naming what it needs.
 
-6. **Write the manifest targets** (merge, preserving any existing `card`/`userStories`):
+6. **Write the manifest targets** (merge, preserving any existing `card`/`userStories`). Pass the
+   full six-state mapping (or the degraded three-state one) as the status map:
 
    ```bash
-   .specify/extensions/clickup/scripts/bash/clickup-manifest.sh set-targets \
+   .specify/extensions/engine/scripts/bash/manifest.sh set-targets \
      --workspace "<workspace id>" --space "<space id>" --list "<list id>" \
-     --status-map '{"not-started":"<name>","in-progress":"<name>","done":"<name>"}'
+     --status-map '{"open":"<name>","in-design":"<name>","ready":"<name>","in-development":"<name>","in-review":"<name>","done":"<name>"}'
    ```
 
-7. **Report** what happened: space found, list found-or-created, the resolved status mapping —
-   or the stop-reason.
+7. **Create the feature-card in `open`** (FR-013a) — so the `open → in-design` transition at
+   `/speckit-specify` is itself visible as "design work started". Derive the desired state with
+   `derive-status.sh --card` (with no spec yet this yields `open`), map it via
+   `status-map.sh resolve --logical open --map <statusMapping>`, and:
+   - `clickup_create_task` in `listId` with `name` = feature title, a minimal body, and
+     `status` = the mapped `open` status.
+   - Record it: `manifest.sh set-card --id <id> --hash <hash>` (hash the derived
+     card content per the sync contract). If a `card.id` already exists in the manifest, this
+     is a re-provision — do NOT create a second card.
+
+8. **Report** what happened: space found, list found-or-created, the resolved six-state (or
+   degraded three-state) mapping, the card created in `open` — or the stop-reason.
 
 ## Idempotence
 
@@ -88,6 +114,6 @@ duplicate space or list (the 2nd+ feature is a pure reuse).
 ## Never
 
 - Never creates a ClickUp space automatically (only find; instruct if missing).
-- Never writes to the repo other than the feature manifest.
+- Never writes to the repo other than the feature manifest and its own plug config (the ask-once write to `clickup-config.yml`).
 - Never touches unrelated cards/tasks in the list.
 - Never proceeds past an ambiguous space or an insufficient status set — it stops.
