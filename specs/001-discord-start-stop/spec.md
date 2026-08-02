@@ -4,7 +4,7 @@
 
 **Created**: 2026-07-20
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: User description: "Either of two people can turn the Palworld dedicated game server on or off from Discord, from any device. Two slash commands: /start and /stop. No authentication or authorization of any kind. No auto-stop, no presence tracking, no grace timers, no scheduling, no wake-on-LAN. A human decides when to start and when to stop; that is the whole policy. The server runs on an always-on Windows gaming PC. Stopping must be graceful — the world save must survive every stop, and a stop that cannot save must fail and report rather than kill the process. Success is: either person types /start on their phone and joins the server about ninety seconds later, and types /stop when done."
 
