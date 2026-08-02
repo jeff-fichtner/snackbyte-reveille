@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { describeStart, describeStop, toEmbed } from './commands.ts';
+import { describeStart, describeStop, describeAddress, toEmbed } from './commands.ts';
 import type { AgentResult } from './agent-client.ts';
 import type { AgentResponse } from '@reveille/contract';
 
@@ -120,6 +120,21 @@ test('colour never carries meaning the words do not', () => {
     describeStop(reached(500, { state: 'error', message: 'x' })),
   ].map((r) => r.text);
   assert.equal(new Set(all).size, all.length, 'two branches are distinguishable only by colour');
+});
+
+test('/address reports the looked-up IP with the configured port', () => {
+  const r = describeAddress({ ip: '203.0.113.7' }, 8211);
+  assert.match(r.text, /203\.0\.113\.7:8211/);
+  assert.equal(r.tone, 'ok');
+  // The port is configured, not assumed — a different game's port formats the same.
+  assert.match(describeAddress({ ip: '203.0.113.7' }, 27015).text, /203\.0\.113\.7:27015/);
+});
+
+test('/address fails honestly when the IP cannot be determined', () => {
+  const r = describeAddress({ error: 'No IP-lookup service responded.' }, 8211);
+  assert.equal(r.tone, 'failed');
+  assert.doesNotMatch(r.text, /\d+\.\d+\.\d+\.\d+/, 'must not invent an address');
+  assert.match(r.footnote ?? '', /responded/);
 });
 
 test('the embed carries the text, and the footnote only when there is one', () => {

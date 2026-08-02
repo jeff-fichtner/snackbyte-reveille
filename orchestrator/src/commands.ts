@@ -120,6 +120,63 @@ export function toEmbed(reply: Reply): EmbedBuilder {
   return embed;
 }
 
+/**
+ * Turn a public-address lookup into what the channel sees.
+ *
+ * Pure and testable. The orchestrator does not know which game this is — it is
+ * handed a port from config and a looked-up IP, and formats the connect string.
+ */
+export function describeAddress(result: { ip: string } | { error: string }, port: number): Reply {
+  if ('error' in result) {
+    return {
+      tone: 'failed',
+      text: 'Could not work out the current address.',
+      footnote: result.error,
+    };
+  }
+  return {
+    tone: 'ok',
+    text: `Connect to \`${result.ip}:${port}\``,
+    // Honest about what this is and is not: it is where the host is right now, and
+    // it only works if the port is forwarded there and no VPN is masking the IP.
+    footnote:
+      'This is the host’s current public address. It changes when the machine moves, and only works with the game port forwarded and no VPN active.',
+  };
+}
+
+/**
+ * Ask the internet what this machine’s public IP is.
+ *
+ * Two independent echo services, so one being down does not break `/address`.
+ * Returns the raw egress IP — which, while the orchestrator and agent share a
+ * machine, is also the game server’s address. When the orchestrator relocates
+ * (deferred), the address players need is the AGENT’s location, and this must
+ * move to the agent side. Marked here so that seam is not forgotten.
+ */
+export async function lookupPublicIp(): Promise<{ ip: string } | { error: string }> {
+  const services = ['https://api.ipify.org', 'https://icanhazip.com'];
+  for (const url of services) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(4_000) });
+      if (!res.ok) continue;
+      const ip = (await res.text()).trim();
+      if (/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) return { ip };
+    } catch {
+      // Try the next service.
+    }
+  }
+  return { error: 'No IP-lookup service responded.' };
+}
+
+export async function handleAddress(
+  interaction: ChatInputCommandInteraction,
+  gamePublicPort: number,
+): Promise<void> {
+  await interaction.editReply({
+    embeds: [toEmbed(describeAddress(await lookupPublicIp(), gamePublicPort))],
+  });
+}
+
 export async function handleStart(
   interaction: ChatInputCommandInteraction,
   agent: AgentClient,

@@ -17,7 +17,7 @@ import {
 } from 'discord.js';
 import { loadConfig } from './config.ts';
 import { AgentClient } from './agent-client.ts';
-import { handleStart, handleStop } from './commands.ts';
+import { handleStart, handleStop, handleAddress } from './commands.ts';
 
 const config = loadConfig();
 const agent = new AgentClient(config.agentBaseUrl);
@@ -52,6 +52,12 @@ const commands = [
     .addSubcommand((s) =>
       s.setName('palworld').setDescription('Save the world and stop the Palworld server.'),
     ),
+  // Read-only, names no server: the host’s public address is a property of where
+  // the machine is, not of which game runs on it. It answers "the computer moved —
+  // what do I tell players now" with a command instead of a router-page hunt.
+  new SlashCommandBuilder()
+    .setName('address')
+    .setDescription('Show the current address players connect to.'),
 ].map((c) => c.toJSON());
 
 export async function registerCommands(): Promise<void> {
@@ -101,6 +107,8 @@ async function handle(interaction: ChatInputCommandInteraction): Promise<void> {
         return await handleStart(interaction, agent);
       case 'stop':
         return await handleStop(interaction, agent);
+      case 'address':
+        return await handleAddress(interaction, config.gamePublicPort);
       default:
         await interaction.editReply(`Unknown command \`/${interaction.commandName}\`.`);
         return;

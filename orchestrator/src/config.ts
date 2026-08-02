@@ -17,6 +17,17 @@ export function required(name: string, env: NodeJS.ProcessEnv = process.env): st
   return raw.trim();
 }
 
+export function requiredPositiveInt(name: string, env: NodeJS.ProcessEnv = process.env): number {
+  const raw = required(name, env);
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(
+      `Environment variable ${name} must be a positive integer, got ${JSON.stringify(raw)}.`,
+    );
+  }
+  return value;
+}
+
 export interface OrchestratorConfig {
   readonly discordBotToken: string;
   readonly discordApplicationId: string;
@@ -27,6 +38,16 @@ export interface OrchestratorConfig {
    * address rather than a change to the contract.
    */
   readonly agentBaseUrl: string;
+  /**
+   * The public port players connect to for the game — reported by `/address`.
+   *
+   * Configuration, never a constant: this is the orchestrator, which must not know
+   * which game it is (only the adapter may). The value happens to be Palworld's
+   * 8211 today, but the orchestrator only knows "this is the number to tell
+   * players", read from config — the same way it knows the agent's address without
+   * knowing what runs there.
+   */
+  readonly gamePublicPort: number;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): OrchestratorConfig {
@@ -35,5 +56,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): OrchestratorCo
     discordApplicationId: required('DISCORD_APPLICATION_ID', env),
     discordGuildId: required('DISCORD_GUILD_ID', env),
     agentBaseUrl: required('AGENT_BASE_URL', env).replace(/\/+$/, ''),
+    gamePublicPort: requiredPositiveInt('GAME_PUBLIC_PORT', env),
   };
 }
