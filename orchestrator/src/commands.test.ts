@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { describeStart, describeStop, describeAddress, toEmbed } from './commands.ts';
-import type { AgentResult } from './agent-client.ts';
+import { describeStart, describeStop, describeAddress, toEmbed, routeToAgent } from './commands.ts';
+import { AgentClient, type AgentResult } from './agent-client.ts';
 import type { AgentResponse } from '@reveille/contract';
 
 const reached = (status: number, body: AgentResponse): AgentResult => ({
@@ -135,6 +135,36 @@ test('/address fails honestly when the IP cannot be determined', () => {
   assert.equal(r.tone, 'failed');
   assert.doesNotMatch(r.text, /\d+\.\d+\.\d+\.\d+/, 'must not invent an address');
   assert.match(r.footnote ?? '', /responded/);
+});
+
+test('routeToAgent reaches exactly the named server and no other (FR-021)', () => {
+  const pal = new AgentClient('http://127.0.0.1:8300');
+  const sat = new AgentClient('http://127.0.0.1:8301');
+  const agents = new Map([
+    ['palworld', pal],
+    ['satisfactory', sat],
+  ]);
+
+  const toPal = routeToAgent('palworld', agents);
+  assert.ok('agent' in toPal && toPal.agent === pal, 'palworld routed to the wrong client');
+  const toSat = routeToAgent('satisfactory', agents);
+  assert.ok('agent' in toSat && toSat.agent === sat, 'satisfactory routed to the wrong client');
+});
+
+test('an unknown server name is refused with the valid list, never routed (FR-020)', () => {
+  const agents = new Map([['palworld', new AgentClient('http://127.0.0.1:8300')]]);
+  const r = routeToAgent('minecraft', agents);
+  assert.ok('reply' in r, 'an unknown name resolved to an agent');
+  assert.equal(r.reply.tone, 'refused');
+  assert.match(r.reply.text, /minecraft/, 'does not name the bad target');
+  assert.match(r.reply.text, /palworld/, 'does not offer the valid list');
+});
+
+test('the reply names the server it acted on, in the embed title (FR-018)', () => {
+  const embed = toEmbed(describeStart(reached(202, { state: 'starting' })), 'satisfactory').toJSON();
+  assert.equal(embed.title, 'Satisfactory');
+  // Without a server name (nothing to title), no title is invented.
+  assert.equal(toEmbed(describeStart(reached(202, { state: 'starting' }))).toJSON().title, undefined);
 });
 
 test('the embed carries the text, and the footnote only when there is one', () => {

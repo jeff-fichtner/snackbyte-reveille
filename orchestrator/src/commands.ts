@@ -113,11 +113,43 @@ export function describeStop(result: AgentResult): Reply {
   };
 }
 
-/** Render a reply as the embed Discord shows. */
-export function toEmbed(reply: Reply): EmbedBuilder {
+/** `satisfactory` → `Satisfactory`, for the embed title that names the target. */
+function titleCase(name: string): string {
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
+/**
+ * Render a reply as the embed Discord shows. When a server is named, it becomes
+ * the title — so the reply says which server it acted on (FR-018), the other half
+ * of naming the target (the player named it by picking the subcommand).
+ */
+export function toEmbed(reply: Reply, serverName?: string): EmbedBuilder {
   const embed = new EmbedBuilder().setColor(TONE_COLOR[reply.tone]).setDescription(reply.text);
+  if (serverName !== undefined) embed.setTitle(titleCase(serverName));
   if (reply.footnote !== undefined) embed.setFooter({ text: reply.footnote });
   return embed;
+}
+
+/** A name that is not a configured server. Refused, with the valid list (FR-020). */
+export function unknownServer(name: string, valid: readonly string[]): Reply {
+  return {
+    tone: 'refused',
+    text: `Unknown server \`${name}\`. Try: ${valid.map((v) => `\`${v}\``).join(', ')}.`,
+  };
+}
+
+/**
+ * Resolve which agent a named command targets. Pure and testable: a known name
+ * returns exactly that server's agent and no other (FR-021 — one server's command
+ * cannot touch another); an unknown name returns the refusal, never a wrong agent.
+ */
+export function routeToAgent(
+  serverName: string,
+  agents: ReadonlyMap<string, AgentClient>,
+): { readonly agent: AgentClient } | { readonly reply: Reply } {
+  const agent = agents.get(serverName);
+  if (agent === undefined) return { reply: unknownServer(serverName, [...agents.keys()]) };
+  return { agent };
 }
 
 /**
@@ -168,25 +200,54 @@ export async function lookupPublicIp(): Promise<{ ip: string } | { error: string
   return { error: 'No IP-lookup service responded.' };
 }
 
-export async function handleAddress(
-  interaction: ChatInputCommandInteraction,
-  gamePublicPort: number,
-): Promise<void> {
-  await interaction.editReply({
-    embeds: [toEmbed(describeAddress(await lookupPublicIp(), gamePublicPort))],
-  });
-}
-
 export async function handleStart(
   interaction: ChatInputCommandInteraction,
-  agent: AgentClient,
+  agents: ReadonlyMap<string, AgentClient>,
+  serverName: string,
 ): Promise<void> {
-  await interaction.editReply({ embeds: [toEmbed(describeStart(await agent.start()))] });
+  const routed = routeToAgent(serverName, agents);
+  if ('reply' in routed) {
+    await interaction.editReply({ embeds: [toEmbed(routed.reply, serverName)] });
+    return;
+  }
+  await interaction.editReply({
+    embeds: [toEmbed(describeStart(await routed.agent.start()), serverName)],
+  });
 }
 
 export async function handleStop(
   interaction: ChatInputCommandInteraction,
-  agent: AgentClient,
+  agents: ReadonlyMap<string, AgentClient>,
+  serverName: string,
 ): Promise<void> {
-  await interaction.editReply({ embeds: [toEmbed(describeStop(await agent.stop()))] });
+  const routed = routeToAgent(serverName, agents);
+  if ('reply' in routed) {
+    await interaction.editReply({ embeds: [toEmbed(routed.reply, serverName)] });
+    return;
+  }
+  await interaction.editReply({
+    embeds: [toEmbed(describeStop(await routed.agent.stop()), serverName)],
+  });
+}
+
+/**
+ * `/address <server>` — where players connect for that one server. It names a
+ * server because two servers share the public IP but differ in game port (the
+ * multi-server config; the single-port `/address` from `main` is reconciled here).
+ */
+export async function handleAddress(
+  interaction: ChatInputCommandInteraction,
+  ports: ReadonlyMap<string, number>,
+  serverName: string,
+): Promise<void> {
+  const port = ports.get(serverName);
+  if (port === undefined) {
+    await interaction.editReply({
+      embeds: [toEmbed(unknownServer(serverName, [...ports.keys()]), serverName)],
+    });
+    return;
+  }
+  await interaction.editReply({
+    embeds: [toEmbed(describeAddress(await lookupPublicIp(), port), serverName)],
+  });
 }

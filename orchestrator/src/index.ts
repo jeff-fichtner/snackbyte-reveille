@@ -20,45 +20,49 @@ import { AgentClient } from './agent-client.ts';
 import { handleStart, handleStop, handleAddress } from './commands.ts';
 
 const config = loadConfig();
-const agent = new AgentClient(config.agentBaseUrl);
+
+// One agent client and one public port per controlled server, keyed by name. The
+// name is the routing key here and on the Discord surface only — never in the
+// contract (Constitution I). Adding a server is one more `AGENTS` entry, no code.
+const agents = new Map(config.servers.map((s) => [s.name, new AgentClient(s.baseUrl)]));
+const ports = new Map(config.servers.map((s) => [s.name, s.publicPort]));
 
 /**
- * The two verbs. `setDefaultMemberPermissions` is deliberately NOT set: any member
- * of the Discord server may issue either command, with no role check of any kind
- * (FR-001). Trust comes from the server being private, not from a permission gate.
- */
-/**
- * The two verbs, each naming its target as a subcommand.
- *
- * With one controlled server the subcommand can only take one value, so this is
- * ahead of its trigger and a knowing deviation from Principle III. It is taken
- * deliberately and temporarily: 002 replaces this list with one built from
- * configuration, at which point the shape stops being ceremony and starts being
- * load-bearing. Adding a second server must not change how the first is typed.
+ * The three verbs, each with one subcommand PER CONFIGURED SERVER, built from
+ * config. `setDefaultMemberPermissions` is deliberately NOT set: any member of the
+ * Discord server may issue any command, with no role check (FR-001). Trust comes
+ * from the guild being private, not from a permission gate.
  *
  * A subcommand rather than an option because "server" is what Discord calls a
  * guild, so `/start server:palworld` reads as the wrong thing entirely — and
  * Discord requires a subcommand to be chosen, which enforces "never assume a
- * default target" at the protocol rather than in our code.
+ * default target" (FR-019) at the protocol rather than in our code. An unknown
+ * name cannot even be submitted through the picker.
  */
-const commands = [
-  new SlashCommandBuilder()
-    .setName('start')
-    .setDescription('Start a game server.')
-    .addSubcommand((s) => s.setName('palworld').setDescription('Start the Palworld server.')),
-  new SlashCommandBuilder()
+function buildCommands() {
+  const start = new SlashCommandBuilder().setName('start').setDescription('Start a game server.');
+  const stop = new SlashCommandBuilder()
     .setName('stop')
-    .setDescription('Save the world and stop a game server.')
-    .addSubcommand((s) =>
-      s.setName('palworld').setDescription('Save the world and stop the Palworld server.'),
-    ),
-  // Read-only, names no server: the host’s public address is a property of where
-  // the machine is, not of which game runs on it. It answers "the computer moved —
-  // what do I tell players now" with a command instead of a router-page hunt.
-  new SlashCommandBuilder()
+    .setDescription('Save the world and stop a game server.');
+  // `/address` names a server too: two servers share the public IP but differ in
+  // game port, so there is no single address to report.
+  const address = new SlashCommandBuilder()
     .setName('address')
-    .setDescription('Show the current address players connect to.'),
-].map((c) => c.toJSON());
+    .setDescription('Show where players connect for a server.');
+
+  for (const s of config.servers) {
+    start.addSubcommand((sub) => sub.setName(s.name).setDescription(`Start the ${s.name} server.`));
+    stop.addSubcommand((sub) =>
+      sub.setName(s.name).setDescription(`Save the world and stop the ${s.name} server.`),
+    );
+    address.addSubcommand((sub) =>
+      sub.setName(s.name).setDescription(`Show the address for the ${s.name} server.`),
+    );
+  }
+  return [start, stop, address].map((c) => c.toJSON());
+}
+
+const commands = buildCommands();
 
 export async function registerCommands(): Promise<void> {
   const rest = new REST({ version: '10' }).setToken(config.discordBotToken);
@@ -101,14 +105,18 @@ async function handle(interaction: ChatInputCommandInteraction): Promise<void> {
   // acknowledge and a start takes far longer than that (SC-004).
   await interaction.deferReply();
 
+  // Every verb names its server as the subcommand (FR-018/019); Discord guarantees
+  // one was chosen, since each command is nothing but subcommands.
+  const server = interaction.options.getSubcommand();
+
   try {
     switch (interaction.commandName) {
       case 'start':
-        return await handleStart(interaction, agent);
+        return await handleStart(interaction, agents, server);
       case 'stop':
-        return await handleStop(interaction, agent);
+        return await handleStop(interaction, agents, server);
       case 'address':
-        return await handleAddress(interaction, config.gamePublicPort);
+        return await handleAddress(interaction, ports, server);
       default:
         await interaction.editReply(`Unknown command \`/${interaction.commandName}\`.`);
         return;
