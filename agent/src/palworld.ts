@@ -12,8 +12,9 @@
 import { execFile, spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { dirname } from 'node:path';
-import type { AgentConfig } from './config.ts';
+import type { PalworldConfig } from './config.ts';
 import type { ServerState } from '@reveille/contract';
+import type { GameAdapter } from './adapter.ts';
 
 /**
  * Launch flags, as used to observe the server's real behaviour during M0. Changing
@@ -28,14 +29,14 @@ const SERVER_PROCESS = 'PalServer-Win64-Shipping-Cmd.exe';
 /** How long to wait on the REST API before treating it as not answering. */
 const REST_PROBE_TIMEOUT_MS = 2_000;
 
-function authHeader(config: AgentConfig): string {
+function authHeader(config: PalworldConfig): string {
   // The REST API uses Basic auth with a literal `admin` user.
   return 'Basic ' + Buffer.from(`admin:${config.palworldAdminPassword}`).toString('base64');
 }
 
 /** Call the Palworld REST API. Throws on transport failure or timeout. */
 export async function restFetch(
-  config: AgentConfig,
+  config: PalworldConfig,
   path: string,
   init: RequestInit = {},
   timeoutMs = REST_PROBE_TIMEOUT_MS,
@@ -52,7 +53,7 @@ export async function restFetch(
 }
 
 /** True when the REST API answers, which is the only proof the server is serving. */
-async function restAnswers(config: AgentConfig): Promise<boolean> {
+async function restAnswers(config: PalworldConfig): Promise<boolean> {
   try {
     const res = await restFetch(config, '/v1/api/info');
     return res.ok;
@@ -88,7 +89,7 @@ export async function serverProcessExists(): Promise<boolean> {
  *
  * Never returns `error` — that is an operation outcome, not a derived state.
  */
-export async function getState(config: AgentConfig): Promise<Exclude<ServerState, 'error'>> {
+export async function getState(config: PalworldConfig): Promise<Exclude<ServerState, 'error'>> {
   if (await restAnswers(config)) return 'running';
   if (await serverProcessExists()) return 'starting';
   return 'stopped';
@@ -106,7 +107,7 @@ export async function getState(config: AgentConfig): Promise<Exclude<ServerState
  * Throws only if the launch itself could not be issued, which the caller reports
  * as a 500.
  */
-export function start(config: AgentConfig): void {
+export function start(config: PalworldConfig): void {
   // Checking the path exists is config validation, not waiting on the server. It
   // turns the overwhelmingly common failure — a wrong PALWORLD_EXE_PATH — into a
   // clear message instead of a spawn that reports success and dies silently,
@@ -153,7 +154,7 @@ const SHUTDOWN_WAIT_SECONDS = 1;
  * The whole operation is bounded (FR-007) — a stop that hangs forever is as bad as
  * one that loses data. Exceeding the bound throws with the server still running.
  */
-export async function stop(config: AgentConfig): Promise<void> {
+export async function stop(config: PalworldConfig): Promise<void> {
   const deadline = Date.now() + config.stopTimeoutMs;
   const remaining = (): number => {
     const left = deadline - Date.now();
@@ -200,4 +201,18 @@ export async function stop(config: AgentConfig): Promise<void> {
       `World saved, but shutdown returned HTTP ${shutdown.status}; server left running.`,
     );
   }
+}
+
+/**
+ * Bind the functions above to a config, presenting the game-agnostic `GameAdapter`
+ * the rest of the agent speaks (adapter.ts). No behaviour of its own — it only
+ * closes over `config` so nothing upstream has to thread it, and nothing upstream
+ * has to know this is Palworld.
+ */
+export function createPalworldAdapter(config: PalworldConfig): GameAdapter {
+  return {
+    getState: () => getState(config),
+    start: () => start(config),
+    stop: () => stop(config),
+  };
 }

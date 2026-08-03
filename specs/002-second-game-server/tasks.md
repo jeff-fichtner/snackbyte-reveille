@@ -37,7 +37,7 @@ agent (DECISIONS 001).
 **Purpose**: Configuration surfaces for a second agent and a multi-agent orchestrator.
 No behaviour yet.
 
-- [ ] T001 [P] Extend `agent/.env.example` — add `GAME` (`palworld` | `satisfactory`, required, selects the adapter) and the Satisfactory-specific values (REST/HTTPS base URL, admin password placeholder, stop bound in ms). Document each; every value required and fail-loud, no fallback
+- [X] T001 [P] Extend `agent/.env.example` — add `GAME` (`palworld` | `satisfactory`, required, selects the adapter) and the Satisfactory-specific values (REST/HTTPS base URL, admin password placeholder, stop bound in ms). Document each; every value required and fail-loud, no fallback
 - [ ] T002 [P] Rework `orchestrator/.env.example` — replace the single `AGENT_BASE_URL` with an `AGENTS` map (server name → agent base URL) and a per-server game public port. Document the shape; a blank/empty map fails loud
 
 **Checkpoint**: The config shapes for two servers are documented and copy-ready.
@@ -51,10 +51,10 @@ adapter-by-config, the status verb, and the orchestrator's many-agents config.
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete.
 
-- [ ] T003 Define the `GameAdapter` interface in `agent/src/adapter.ts` — `getState(): Promise<'running'|'starting'|'stopped'>`, `start(config): void`, `stop(config): Promise<void>`. The exact shape `palworld.ts` already satisfies; `error` is never a derived state (research R1, DECISIONS 010)
-- [ ] T004 Refactor `agent/src/palworld.ts` to implement `GameAdapter` explicitly — **no behaviour change**. The force-stop-ban and save-before-shutdown source tests must still pass byte-for-byte (SC-009)
-- [ ] T005 Implement adapter selection in `agent/src/config.ts` — add required `GAME` (fail loud naming it; `palworld` | `satisfactory`). In `agent/src/index.ts`, load the named adapter at boot; **nothing outside the adapter branches on the game** (FR-025)
-- [ ] T006 Add `GET /status` to `agent/src/index.ts` — return `{ state }` from `getState()`, read-only. **Admit `GET` past the current POST-only `405` guard** (the router rejects every non-POST today, index.ts:107), and **do not put it on the command mutex** — `/status` is side-effect-free and US3 polls it, so serializing it behind an in-flight `/start`/`/stop` (the mutex is held through save+shutdown) would stall the poll and contend with real commands (contract Rule 2, "may be polled without consequence"). 200 with `running`/`starting`/`stopped`, never `error` as a state (contracts/agent-api.md v2)
+- [X] T003 Define the `GameAdapter` interface in `agent/src/adapter.ts` — `getState(): Promise<'running'|'starting'|'stopped'>`, `start(config): void`, `stop(config): Promise<void>`. The exact shape `palworld.ts` already satisfies; `error` is never a derived state (research R1, DECISIONS 010)
+- [X] T004 Refactor `agent/src/palworld.ts` to implement `GameAdapter` explicitly — **no behaviour change**. The force-stop-ban and save-before-shutdown source tests must still pass byte-for-byte (SC-009)
+- [X] T005 Implement adapter selection in `agent/src/config.ts` — add required `GAME` (fail loud naming it; `palworld` | `satisfactory`). In `agent/src/index.ts`, load the named adapter at boot; **nothing outside the adapter branches on the game** (FR-025)
+- [X] T006 Add `GET /status` to `agent/src/index.ts` — return `{ state }` from `getState()`, read-only. **Admit `GET` past the current POST-only `405` guard** (the router rejects every non-POST today, index.ts:107), and **do not put it on the command mutex** — `/status` is side-effect-free and US3 polls it, so serializing it behind an in-flight `/start`/`/stop` (the mutex is held through save+shutdown) would stall the poll and contend with real commands (contract Rule 2, "may be polled without consequence"). 200 with `running`/`starting`/`stopped`, never `error` as a state (contracts/agent-api.md v2)
 - [ ] T007 [P] Add `status()` to `orchestrator/src/agent-client.ts` — `GET /status`, returning the parsed state or the distinct "could not reach the host" outcome (FR-009)
 - [ ] T008 Load many agents in `orchestrator/src/config.ts` — parse `AGENTS` into a name→base-URL map (required, non-empty, fail loud) plus each server's game public port. Replaces the single `AGENT_BASE_URL`; the name lives only here and in the Discord surface, never in the contract (FR-024)
 - [ ] T009 [P] Unit-test the config loaders in `agent/src/config.test.ts` and `orchestrator/src/config.test.ts` — `GAME` and `AGENTS` fail loud by name on missing/blank/empty; no silent fallback
