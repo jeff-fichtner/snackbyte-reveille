@@ -47,6 +47,12 @@ export interface OrchestratorConfig {
   readonly discordGuildId: string;
   /** Every server this orchestrator controls, keyed by name. Never empty. */
   readonly servers: readonly ControlledServer[];
+  /**
+   * How long, in ms, the US3 follow-up watches a just-launched server before it
+   * gives up and posts "could not confirm" (FR-029). Required — a missing bound
+   * would mean an unbounded wait. The `.env.example` suggests ~2min (SC-001).
+   */
+  readonly followupTimeoutMs: number;
 }
 
 /** Discord subcommand names — and therefore server names — are `[a-z0-9_-]{1,32}`. */
@@ -104,5 +110,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): OrchestratorCo
     discordApplicationId: required('DISCORD_APPLICATION_ID', env),
     discordGuildId: required('DISCORD_GUILD_ID', env),
     servers: parseAgents(env),
+    followupTimeoutMs: requiredPositiveInt('FOLLOWUP_TIMEOUT_MS', env),
   };
 }

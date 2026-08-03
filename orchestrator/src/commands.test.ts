@@ -40,10 +40,12 @@ test('a start never claims the server is up (FR-004)', () => {
   assert.doesNotMatch(said(r), /\bis (now )?(up|running|online|ready)\b/i);
 });
 
-test('a start reads as done, not as pending', () => {
-  // Nothing ever follows up on a command (FR-004), so a pending-looking reply
-  // would promise an update that never arrives. Every reply must be terminal.
-  assert.equal(describeStart(reached(202, { state: 'starting' })).tone, 'ok');
+test('a start reads as in progress and promises the follow-up (US3)', () => {
+  // US3 inverts the old rule: a launch DOES get followed up on, so the immediate
+  // reply pends (amber) and says another message will come — no longer terminal.
+  const r = describeStart(reached(202, { state: 'starting' }));
+  assert.equal(r.tone, 'progress');
+  assert.match(r.text, /post again|follow/i);
 });
 
 test('nothing that failed or was refused reads as success', () => {
@@ -59,8 +61,9 @@ test('nothing that failed or was refused reads as success', () => {
   ]) {
     assert.notEqual(r.tone, 'ok', `"${r.text}" must not read as success`);
   }
-  // And the two that genuinely did something do.
-  assert.equal(describeStart(reached(202, { state: 'starting' })).tone, 'ok');
+  // And the two that genuinely did something: a start now PENDS (US3 follows up),
+  // a stop is terminal success. Neither reads as a failure.
+  assert.equal(describeStart(reached(202, { state: 'starting' })).tone, 'progress');
   assert.equal(describeStop(reached(200, { state: 'stopped' })).tone, 'ok');
 });
 
@@ -202,7 +205,7 @@ test('the embed carries the text, and the footnote only when there is one', () =
   const withNote = toEmbed(describeStart(reached(202, { state: 'starting' }))).toJSON();
   assert.match(withNote.description ?? '', /Starting the server/);
   assert.match(withNote.footer?.text ?? '', /not verified/i);
-  assert.equal(withNote.color, 0x39d39f);
+  assert.equal(withNote.color, 0xe8a13a); // progress/amber — a start pends (US3)
 
   const without = toEmbed(describeStart(reached(409, { state: 'running' }))).toJSON();
   assert.equal(without.footer, undefined, 'a footer appeared with no footnote to put in it');

@@ -12,6 +12,7 @@ const complete = {
   DISCORD_APPLICATION_ID: 'app',
   DISCORD_GUILD_ID: 'guild',
   AGENTS,
+  FOLLOWUP_TIMEOUT_MS: '120000',
 } satisfies NodeJS.ProcessEnv;
 
 test('a complete environment loads every configured server', () => {
@@ -25,6 +26,17 @@ test('a complete environment loads every configured server', () => {
   assert.ok(sat, 'satisfactory not loaded');
   assert.equal(sat.baseUrl, 'http://127.0.0.1:8301');
   assert.equal(sat.publicPort, 7777);
+  assert.equal(config.followupTimeoutMs, 120000);
+});
+
+test('the follow-up bound must be a positive integer (FR-029)', () => {
+  for (const bad of ['0', '-1', 'soon', '1.5', '']) {
+    assert.throws(
+      () => loadConfig({ ...complete, FOLLOWUP_TIMEOUT_MS: bad }),
+      /FOLLOWUP_TIMEOUT_MS/,
+      `accepted ${JSON.stringify(bad)}`,
+    );
+  }
 });
 
 test('every required variable fails loudly by name when missing', () => {

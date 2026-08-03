@@ -55,16 +55,14 @@ export function describeStart(result: AgentResult): Reply {
   const { status, body } = result;
 
   if (status === 202) {
-    // Deliberately promises no duration. The system does not know when the server
-    // becomes joinable and must not imply it does (FR-004) — and the real figure
-    // varies with world size anyway (~3s empty, longer once there is a world).
-    // `ok` means the COMMAND succeeded, not that the server is up — the honesty
-    // lives in the text and footnote, which say exactly that. Green rather than
-    // amber because this reply is final: nothing further will arrive.
+    // Amber, and it PROMISES a follow-up — which US3 now delivers. The launch was
+    // issued; the server is not up yet, and this reply says so and pends. It still
+    // makes no claim about *when* (FR-004): the follow-up watches and reports either
+    // "it's up" or "could not confirm", so this message never has to guess.
     return {
-      tone: 'ok',
-      text: 'Starting the server. Launch issued without error — give it a moment, then join.',
-      footnote: 'That means launched, not verified. If it died on startup you will find out by failing to join.',
+      tone: 'progress',
+      text: 'Starting the server — launch issued. I’ll post again when it’s up.',
+      footnote: 'That means launched, not verified. If it does not come up, the follow-up will say it could not be confirmed.',
     };
   }
   if (status === 409 && body.state === 'running') {
@@ -114,7 +112,7 @@ export function describeStop(result: AgentResult): Reply {
 }
 
 /** `satisfactory` → `Satisfactory`, for the embed title that names the target. */
-function titleCase(name: string): string {
+export function titleCase(name: string): string {
   return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
@@ -251,15 +249,17 @@ export async function handleStart(
   interaction: ChatInputCommandInteraction,
   agents: ReadonlyMap<string, AgentClient>,
   serverName: string,
-): Promise<void> {
+): Promise<AgentResult | undefined> {
   const routed = routeToAgent(serverName, agents);
   if ('reply' in routed) {
     await interaction.editReply({ embeds: [toEmbed(routed.reply, serverName)] });
-    return;
+    return undefined; // an unknown name launched nothing — no follow-up (FR-030)
   }
-  await interaction.editReply({
-    embeds: [toEmbed(describeStart(await routed.agent.start()), serverName)],
-  });
+  const result = await routed.agent.start();
+  await interaction.editReply({ embeds: [toEmbed(describeStart(result), serverName)] });
+  // The caller arms a follow-up only on a 202 (an actual launch), never on a
+  // refusal or an unreachable host (FR-030).
+  return result;
 }
 
 export async function handleStop(

@@ -18,6 +18,7 @@ import {
 import { loadConfig } from './config.ts';
 import { AgentClient } from './agent-client.ts';
 import { handleStart, handleStop, handleAddress, handleStatus } from './commands.ts';
+import { armFollowup, shouldFollowUp } from './followup.ts';
 
 const config = loadConfig();
 
@@ -119,8 +120,16 @@ async function handle(interaction: ChatInputCommandInteraction): Promise<void> {
     // Discord guarantees one was chosen, since each is nothing but subcommands.
     const server = interaction.options.getSubcommand();
     switch (interaction.commandName) {
-      case 'start':
-        return await handleStart(interaction, agents, server);
+      case 'start': {
+        const result = await handleStart(interaction, agents, server);
+        // Only an actual launch (202) is watched; a refusal or unreachable host
+        // arms nothing (FR-030). Fire-and-forget — the reply already went out.
+        if (shouldFollowUp(result)) {
+          const agent = agents.get(server);
+          if (agent) armFollowup(interaction, server, agent, config.followupTimeoutMs);
+        }
+        return;
+      }
       case 'stop':
         return await handleStop(interaction, agents, server);
       case 'address':
