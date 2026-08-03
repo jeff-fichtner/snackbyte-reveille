@@ -28,26 +28,80 @@ export function requiredPositiveInt(name: string, env: NodeJS.ProcessEnv = proce
   return value;
 }
 
+/**
+ * One controlled server, as the orchestrator knows it: a human name, the agent's
+ * base URL (which IS the agent's identity — Constitution I), and the public port
+ * players connect to for that game. The name lives ONLY here and on the Discord
+ * surface; it never enters the contract (DECISIONS 002). Adding a server is one
+ * more entry here plus deploying its agent (FR-024) — no code change.
+ */
+export interface ControlledServer {
+  readonly name: string;
+  readonly baseUrl: string;
+  readonly publicPort: number;
+}
+
 export interface OrchestratorConfig {
   readonly discordBotToken: string;
   readonly discordApplicationId: string;
   readonly discordGuildId: string;
+  /** Every server this orchestrator controls, keyed by name. Never empty. */
+  readonly servers: readonly ControlledServer[];
   /**
-   * The agent's base URL — which IS the agent's identity (Constitution I). Always
-   * configuration, never a constant, so a second controlled server is a second
-   * address rather than a change to the contract.
+   * How long, in ms, the US3 follow-up watches a just-launched server before it
+   * gives up and posts "could not confirm" (FR-029). Required — a missing bound
+   * would mean an unbounded wait. The `.env.example` suggests ~2min (SC-001).
    */
-  readonly agentBaseUrl: string;
-  /**
-   * The public port players connect to for the game — reported by `/address`.
-   *
-   * Configuration, never a constant: this is the orchestrator, which must not know
-   * which game it is (only the adapter may). The value happens to be Palworld's
-   * 8211 today, but the orchestrator only knows "this is the number to tell
-   * players", read from config — the same way it knows the agent's address without
-   * knowing what runs there.
-   */
-  readonly gamePublicPort: number;
+  readonly followupTimeoutMs: number;
+}
+
+/** Discord subcommand names — and therefore server names — are `[a-z0-9_-]{1,32}`. */
+const NAME_PATTERN = /^[a-z0-9_-]{1,32}$/;
+
+/**
+ * Parse `AGENTS` into the server list, failing loud on anything malformed. The
+ * shape is a JSON array of `{name, url, publicPort}`. A blank/empty/one-bad-entry
+ * value throws naming `AGENTS` and the problem — never boots with a partial map.
+ */
+export function parseAgents(env: NodeJS.ProcessEnv = process.env): readonly ControlledServer[] {
+  const raw = required('AGENTS', env);
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error: unknown) {
+    const why = error instanceof Error ? error.message : String(error);
+    throw new Error(`Environment variable AGENTS must be a JSON array — could not parse it (${why}).`);
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    throw new Error('Environment variable AGENTS must be a non-empty JSON array of servers.');
+  }
+
+  const seen = new Set<string>();
+  return parsed.map((entry, i): ControlledServer => {
+    const where = `AGENTS[${i}]`;
+    if (typeof entry !== 'object' || entry === null) {
+      throw new Error(`${where} must be an object like {"name","url","publicPort"}.`);
+    }
+    const { name, url, publicPort } = entry as Record<string, unknown>;
+
+    if (typeof name !== 'string' || !NAME_PATTERN.test(name)) {
+      throw new Error(`${where}.name must match ${NAME_PATTERN} (Discord subcommand rules), got ${JSON.stringify(name)}.`);
+    }
+    if (seen.has(name)) {
+      throw new Error(`${where}.name duplicates an earlier server name ${JSON.stringify(name)}.`);
+    }
+    seen.add(name);
+
+    if (typeof url !== 'string' || url.trim() === '') {
+      throw new Error(`${where}.url must be a non-empty agent base URL, got ${JSON.stringify(url)}.`);
+    }
+    if (!Number.isInteger(publicPort) || (publicPort as number) <= 0) {
+      throw new Error(`${where}.publicPort must be a positive integer, got ${JSON.stringify(publicPort)}.`);
+    }
+
+    return { name, baseUrl: url.trim().replace(/\/+$/, ''), publicPort: publicPort as number };
+  });
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): OrchestratorConfig {
@@ -55,7 +109,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): OrchestratorCo
     discordBotToken: required('DISCORD_BOT_TOKEN', env),
     discordApplicationId: required('DISCORD_APPLICATION_ID', env),
     discordGuildId: required('DISCORD_GUILD_ID', env),
-    agentBaseUrl: required('AGENT_BASE_URL', env).replace(/\/+$/, ''),
-    gamePublicPort: requiredPositiveInt('GAME_PUBLIC_PORT', env),
+    servers: parseAgents(env),
+    followupTimeoutMs: requiredPositiveInt('FOLLOWUP_TIMEOUT_MS', env),
   };
 }

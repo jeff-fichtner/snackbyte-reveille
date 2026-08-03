@@ -14,7 +14,8 @@
     "@reveille/contract": "*"
   },
   "scripts": {
-    "start": "node --env-file=.env src/index.ts",
+    "start:palworld": "node --env-file=.env.palworld src/index.ts",
+    "start:satisfactory": "node --env-file=.env.satisfactory src/index.ts",
     "typecheck": "tsc -p tsconfig.json",
     "test": "node --test \"src/**/*.test.ts\""
   }

@@ -1,0 +1,50 @@
+{
+  "schemaVersion": "1",
+  "feature": "002-second-game-server",
+  "workspaceId": "90141363864",
+  "spaceId": "90146746995",
+  "listId": "901418532266",
+  "statusMapping": {
+    "open": "backlog",
+    "in-design": "in design",
+    "ready": "ready for development",
+    "in-development": "in development",
+    "in-review": "in review",
+    "done": "shipped"
+  },
+  "card": {
+    "id": "86bb78w0f",
+    "hash": "sha256:52b198c967711c736629390159996becd9a3f01931a2f8dc2dec0b0eb157b2ae"
+  },
+  "userStories": [
+    {
+      "us": "US1",
+      "id": "86bb78w42",
+      "hash": "sha256:8b1a45d895b2797d34d4294e171c70d3ff9305ef40d934bcb517ec149ee5a055",
+      "dependsOn": []
+    },
+    {
+      "us": "US2",
+      "id": "86bb78w82",
+      "hash": "sha256:0e18a1b23ec9b623edf45a0c07f05b2bb19aa520e6bef20d51bf46c45c172cfa",
+      "dependsOn": [
+        "US1"
+      ]
+    },
+    {
+      "us": "US3",
+      "id": "86bb78w8z",
+      "hash": "sha256:0637cb025669c3cbc44839221a3d8434b05ea4d33978c992357143a94f8502b4",
+      "dependsOn": [
+        "US1",
+        "US2"
+      ]
+    }
+  ],
+  "lifecycle": {
+    "analyzed": true,
+    "implementStarted": true,
+    "verifyPassed": true,
+    "closedOut": true
+  }
+}

@@ -466,3 +466,121 @@ scan finds one open port, which remains true. It says nothing about the server
 announcing where it is. If a future milestone wants genuine privacy rather than
 inaccessibility, the port forward has to go, and that is a Tailscale-shaped
 decision, not a settings change.
+
+---
+
+## 013 · The `GameAdapter` interface is concrete, and selected by config
+**Date:** 2026-08-02 · **Status:** accepted
+**Closes:** how a second game plugs in (001 promised "one adapter per game"; 002 makes it real)
+
+**Context.** 001 promised game-agnosticism, but only Palworld existed, so the
+"fixed interface" was implicit in the shape of one file. Adding Satisfactory
+(feature 002) forced two questions to have answers: what exactly do `palworld.ts`
+and `satisfactory.ts` both satisfy, and how does one agent binary become either?
+
+**Decision.** `agent/src/adapter.ts` defines `GameAdapter` — `getState()`,
+`start()`, `stop()` — the shape `palworld.ts` already had. Each game is a factory
+(`createPalworldAdapter`, `createSatisfactoryAdapter`). `createAdapter(config)`
+switches on the required `GAME` env var and returns one. **That switch is the only
+place in the agent that branches on the game** (FR-025).
+
+**Why it won.** It makes 001's "one adapter per game" checkable by the type system
+and a test instead of a convention. Chosen over threading a game discriminant
+through the HTTP layer, config, and serializer (which scatters game-knowledge) and
+over a separate binary per game (which duplicates the whole agent).
+
+**Consequences.** One agent binary deploys as either game, chosen by `GAME`. A
+third game is a third file implementing the interface plus one `case` — nothing
+above the adapter changes. `AgentConfig` becomes a `GAME`-discriminated union, so
+each agent requires only its own game's variables and fails loud on a wrong/missing
+`GAME` (a silent default would control the wrong server).
+
+---
+
+## 014 · The seam gains a third verb, `GET /status` (contract v2)
+**Date:** 2026-08-02 · **Status:** accepted
+**Closes:** how the orchestrator reads state without acting (US2) — a seam change, so architecture
+
+**Context.** US2 (`/status`) and US3 (the follow-up) both need to ask an agent for
+state without starting or stopping it. 001's seam had only the two acting verbs, so
+the orchestrator could learn `running`/`starting`/`stopped` only as a side effect of
+a start/stop refusal.
+
+**Decision.** Add `GET /status`, read-only, returning the derived state
+(`running`/`starting`/`stopped`, never `error`). Purely **additive** — every v1
+field and behaviour is unchanged (SC-009), and no server id enters it, like the rest
+of the seam.
+
+**Why it won.** Reading state is a distinct need from changing it; folding it into
+start/stop would mean faking a command to read a state. Additive because a 001
+conformance check must still pass. Chosen over a heavier "server info" verb
+returning players/details — FR-011 forbids that data anyway.
+
+**Consequences.** The agent must admit `GET` (its router was POST-only) and — the
+subtle part — must **not** put `/status` on the command mutex: it is read-only and
+US3 polls it, so serializing it would stall a poll behind an in-flight stop and
+contend with real commands. It runs concurrently; the two acting verbs stay
+serialized (010).
+
+---
+
+## 015 · The follow-up: the first behaviour that watches, not answers (US3)
+**Date:** 2026-08-02 · **Status:** accepted
+**Closes:** whether the system may ever claim a server is up
+
+**Context.** Through 001, FR-004 forbade any reply claiming a server was up, because
+nothing watched — a start reply was terminal and green, promising nothing. US3 asks
+for exactly that forbidden claim: after a launch, tell the player when it is up.
+
+**Decision.** A `/start` that returns 202 arms an **in-memory** follow-up: poll the
+agent's `/status` until `running` or a bounded timeout (`FOLLOWUP_TIMEOUT_MS`), then
+post a NEW Discord message — "it's up" or "could not confirm within N", **never
+"failed"**. Only a 202 arms one (a refusal or unreachable host arms nothing). The
+immediate reply becomes amber "in progress" again and now truthfully promises it.
+
+**Why it won.** "Up" is defined as the control API reporting `running` (reuse
+`/status`), not a separate joinability probe — consistent with 001's posture that
+the API answering is the authority on `running`. A timeout is "could not confirm",
+never "failed", because a launch that was issued is not one that failed (001's
+happy-path posture). In memory only: a restart abandons the wait and posts nothing
+(FR-032), preferable to a claim from state that outlived a restart.
+
+**Consequences.** This **amends FR-004** — the system may now claim up, but only
+once observed. The immediate start reply flips from green/terminal to amber/pending,
+inverting the 001 "a start reads as done" rule and its test. It is the first
+orchestrator behaviour that outlives the request that triggered it — and it survives
+a restart by design: not at all.
+
+---
+
+## 016 · The Satisfactory adapter speaks the HTTPS API; `7777` is a UDP/TCP split
+**Date:** 2026-08-02 · **Status:** accepted
+**Closes:** which Satisfactory interface serves the verbs, and how it is exposed
+
+**Context.** Satisfactory is the second game (013). Its dedicated server exposes an
+official HTTPS API; the request shapes, timing, and process names had to be observed
+against a real install (M0) before the adapter could be trusted — exactly as
+Palworld's were (`m0-satisfactory.md`).
+
+**Decision.** `satisfactory.ts` speaks the HTTPS API over built-in **`node:https`**
+(the API is self-signed TLS on loopback, which `fetch` cannot be told to accept —
+this keeps the agent's zero-dep rule). Auth is `PasswordLogin` → an Administrator
+bearer token, cached. `stop` is `SaveGame` → verify 2xx → `Shutdown`, graceful, with
+no force path (the source ban test extends to this file). The server was **claimed
+over its own API** — no game client — and its `autoLoadSessionName` set, so a bare
+spawn brings the world up on its own, like Palworld's.
+
+**Why it won.** The HTTPS API is the official, supported interface — there is no
+RCON-vs-REST question here (009 has no analogue). `node:https` keeps zero runtime
+deps. `running` keys on `serverGameState.isGameRunning`, **not** mere API
+reachability — M0 showed the API answers ~10s in on a session-less server, so keying
+on reachability would report a worldless server as up. The process check anchors on
+`FactoryServer`, never a loose `Factory…` match, because the game CLIENT
+(`FactoryGameSteam-Win64-Shipping.exe`) shares the shape and would false-positive.
+
+**Consequences.** `node:https` joins `node:http`/`fetch` in the agent's allowed
+built-ins (this entry is its `DECISIONS` warrant). **The `7777` trap:** the game is
+`7777/UDP` (forward it) and the admin API is `7777/TCP` (loopback/LAN only) — same
+number, different protocol — so exposure forwards UDP only, and a firewall rule
+blocks `7777/TCP` from the LAN (mirroring Palworld's 8212 rule). A blank
+`SATISFACTORY_ADMIN_PASSWORD` is an open admin interface, same as Palworld's.

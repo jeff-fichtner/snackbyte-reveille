@@ -1,7 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { describeStart, describeStop, describeAddress, toEmbed } from './commands.ts';
-import type { AgentResult } from './agent-client.ts';
+import {
+  describeStart,
+  describeStop,
+  describeAddress,
+  describeStatus,
+  toEmbed,
+  routeToAgent,
+} from './commands.ts';
+import { AgentClient, type AgentResult } from './agent-client.ts';
 import type { AgentResponse } from '@reveille/contract';
 
 const reached = (status: number, body: AgentResponse): AgentResult => ({
@@ -33,10 +40,12 @@ test('a start never claims the server is up (FR-004)', () => {
   assert.doesNotMatch(said(r), /\bis (now )?(up|running|online|ready)\b/i);
 });
 
-test('a start reads as done, not as pending', () => {
-  // Nothing ever follows up on a command (FR-004), so a pending-looking reply
-  // would promise an update that never arrives. Every reply must be terminal.
-  assert.equal(describeStart(reached(202, { state: 'starting' })).tone, 'ok');
+test('a start reads as in progress and promises the follow-up (US3)', () => {
+  // US3 inverts the old rule: a launch DOES get followed up on, so the immediate
+  // reply pends (amber) and says another message will come — no longer terminal.
+  const r = describeStart(reached(202, { state: 'starting' }));
+  assert.equal(r.tone, 'progress');
+  assert.match(r.text, /post again|follow/i);
 });
 
 test('nothing that failed or was refused reads as success', () => {
@@ -52,8 +61,9 @@ test('nothing that failed or was refused reads as success', () => {
   ]) {
     assert.notEqual(r.tone, 'ok', `"${r.text}" must not read as success`);
   }
-  // And the two that genuinely did something do.
-  assert.equal(describeStart(reached(202, { state: 'starting' })).tone, 'ok');
+  // And the two that genuinely did something: a start now PENDS (US3 follows up),
+  // a stop is terminal success. Neither reads as a failure.
+  assert.equal(describeStart(reached(202, { state: 'starting' })).tone, 'progress');
   assert.equal(describeStop(reached(200, { state: 'stopped' })).tone, 'ok');
 });
 
@@ -137,11 +147,65 @@ test('/address fails honestly when the IP cannot be determined', () => {
   assert.match(r.footnote ?? '', /responded/);
 });
 
+test('/status reports every server with its own state, independently (SC-005)', () => {
+  const r = describeStatus([
+    { name: 'palworld', result: reached(200, { state: 'running' }) },
+    { name: 'satisfactory', result: reached(200, { state: 'stopped' }) },
+  ]);
+  assert.equal(r.tone, 'ok');
+  assert.match(r.text, /Palworld.*running/);
+  assert.match(r.text, /Satisfactory.*stopped/);
+});
+
+test('/status shows an unreachable agent as such, others still reported (FR-023, FR-026)', () => {
+  const r = describeStatus([
+    { name: 'palworld', result: reached(200, { state: 'running' }) },
+    { name: 'satisfactory', result: { reached: false, reason: 'ECONNREFUSED' } },
+  ]);
+  assert.match(r.text, /Palworld.*running/, 'a reachable server is still reported');
+  assert.match(r.text, /Satisfactory.*unreachable/i, 'the down agent is unreachable, not a state');
+});
+
+test('/status never says who or how many are connected (FR-011)', () => {
+  const r = describeStatus([{ name: 'palworld', result: reached(200, { state: 'running' }) }]);
+  assert.doesNotMatch(r.text, /player|connected|online|\b\d+\s*\/\s*\d+\b/i);
+});
+
+test('routeToAgent reaches exactly the named server and no other (FR-021)', () => {
+  const pal = new AgentClient('http://127.0.0.1:8300');
+  const sat = new AgentClient('http://127.0.0.1:8301');
+  const agents = new Map([
+    ['palworld', pal],
+    ['satisfactory', sat],
+  ]);
+
+  const toPal = routeToAgent('palworld', agents);
+  assert.ok('agent' in toPal && toPal.agent === pal, 'palworld routed to the wrong client');
+  const toSat = routeToAgent('satisfactory', agents);
+  assert.ok('agent' in toSat && toSat.agent === sat, 'satisfactory routed to the wrong client');
+});
+
+test('an unknown server name is refused with the valid list, never routed (FR-020)', () => {
+  const agents = new Map([['palworld', new AgentClient('http://127.0.0.1:8300')]]);
+  const r = routeToAgent('minecraft', agents);
+  assert.ok('reply' in r, 'an unknown name resolved to an agent');
+  assert.equal(r.reply.tone, 'refused');
+  assert.match(r.reply.text, /minecraft/, 'does not name the bad target');
+  assert.match(r.reply.text, /palworld/, 'does not offer the valid list');
+});
+
+test('the reply names the server it acted on, in the embed title (FR-018)', () => {
+  const embed = toEmbed(describeStart(reached(202, { state: 'starting' })), 'satisfactory').toJSON();
+  assert.equal(embed.title, 'Satisfactory');
+  // Without a server name (nothing to title), no title is invented.
+  assert.equal(toEmbed(describeStart(reached(202, { state: 'starting' }))).toJSON().title, undefined);
+});
+
 test('the embed carries the text, and the footnote only when there is one', () => {
   const withNote = toEmbed(describeStart(reached(202, { state: 'starting' }))).toJSON();
   assert.match(withNote.description ?? '', /Starting the server/);
   assert.match(withNote.footer?.text ?? '', /not verified/i);
-  assert.equal(withNote.color, 0x39d39f);
+  assert.equal(withNote.color, 0xe8a13a); // progress/amber — a start pends (US3)
 
   const without = toEmbed(describeStart(reached(409, { state: 'running' }))).toJSON();
   assert.equal(without.footer, undefined, 'a footer appeared with no footnote to put in it');

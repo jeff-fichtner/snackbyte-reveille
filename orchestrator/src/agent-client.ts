@@ -38,18 +38,23 @@ export class AgentClient {
   }
 
   start(): Promise<AgentResult> {
-    return this.#post('/start');
+    return this.#request('POST', '/start');
   }
 
   stop(): Promise<AgentResult> {
-    return this.#post('/stop');
+    return this.#request('POST', '/stop');
   }
 
-  async #post(path: string): Promise<AgentResult> {
+  /** Read-only state, for `/status` (US2) and the US3 follow-up. Never mutates. */
+  status(): Promise<AgentResult> {
+    return this.#request('GET', '/status');
+  }
+
+  async #request(method: string, path: string): Promise<AgentResult> {
     let res: Response;
     try {
       res = await fetch(`${this.#baseUrl}${path}`, {
-        method: 'POST',
+        method,
         headers: { 'Content-Type': 'application/json' },
         signal: AbortSignal.timeout(this.#timeoutMs),
       });

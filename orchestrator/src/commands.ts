@@ -55,16 +55,14 @@ export function describeStart(result: AgentResult): Reply {
   const { status, body } = result;
 
   if (status === 202) {
-    // Deliberately promises no duration. The system does not know when the server
-    // becomes joinable and must not imply it does (FR-004) — and the real figure
-    // varies with world size anyway (~3s empty, longer once there is a world).
-    // `ok` means the COMMAND succeeded, not that the server is up — the honesty
-    // lives in the text and footnote, which say exactly that. Green rather than
-    // amber because this reply is final: nothing further will arrive.
+    // Amber, and it PROMISES a follow-up — which US3 now delivers. The launch was
+    // issued; the server is not up yet, and this reply says so and pends. It still
+    // makes no claim about *when* (FR-004): the follow-up watches and reports either
+    // "it's up" or "could not confirm", so this message never has to guess.
     return {
-      tone: 'ok',
-      text: 'Starting the server. Launch issued without error — give it a moment, then join.',
-      footnote: 'That means launched, not verified. If it died on startup you will find out by failing to join.',
+      tone: 'progress',
+      text: 'Starting the server — launch issued. I’ll post again when it’s up.',
+      footnote: 'That means launched, not verified. If it does not come up, the follow-up will say it could not be confirmed.',
     };
   }
   if (status === 409 && body.state === 'running') {
@@ -113,11 +111,73 @@ export function describeStop(result: AgentResult): Reply {
   };
 }
 
-/** Render a reply as the embed Discord shows. */
-export function toEmbed(reply: Reply): EmbedBuilder {
+/** `satisfactory` → `Satisfactory`, for the embed title that names the target. */
+export function titleCase(name: string): string {
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
+/** One server's answer to `/status`: its name, and what its agent said (or didn't). */
+export interface ServerStatus {
+  readonly name: string;
+  readonly result: AgentResult;
+}
+
+/** How each derived state reads in a status list. Never mentions players (FR-011). */
+const STATE_WORD: Record<string, string> = {
+  running: 'running',
+  starting: 'starting',
+  stopped: 'stopped',
+  error: 'error',
+};
+
+/**
+ * Summarise every server's state in one read-only reply (US2). Each server is
+ * reported independently — one whose agent cannot be reached shows `unreachable`
+ * (a transport fact, not a fifth state) while the others report normally (FR-023,
+ * FR-026). Says nothing about who or how many are connected (FR-011); changes
+ * nothing (SC-005).
+ */
+export function describeStatus(statuses: readonly ServerStatus[]): Reply {
+  const lines = statuses.map(({ name, result }) => {
+    const label = `**${titleCase(name)}**`;
+    if (!result.reached) return `${label} — unreachable`;
+    return `${label} — ${STATE_WORD[result.body.state] ?? result.body.state}`;
+  });
+  return { tone: 'ok', text: lines.join('\n') };
+}
+
+/**
+ * Render a reply as the embed Discord shows. When a server is named, it becomes
+ * the title — so the reply says which server it acted on (FR-018), the other half
+ * of naming the target (the player named it by picking the subcommand).
+ */
+export function toEmbed(reply: Reply, serverName?: string): EmbedBuilder {
   const embed = new EmbedBuilder().setColor(TONE_COLOR[reply.tone]).setDescription(reply.text);
+  if (serverName !== undefined) embed.setTitle(titleCase(serverName));
   if (reply.footnote !== undefined) embed.setFooter({ text: reply.footnote });
   return embed;
+}
+
+/** A name that is not a configured server. Refused, with the valid list (FR-020). */
+export function unknownServer(name: string, valid: readonly string[]): Reply {
+  return {
+    tone: 'refused',
+    text: `Unknown server \`${name}\`. Try: ${valid.map((v) => `\`${v}\``).join(', ')}.`,
+  };
+}
+
+/**
+ * Resolve which agent a named command targets. Pure and testable: a known name
+ * returns exactly that server's agent and no other (FR-021 — one server's command
+ * cannot touch another); an unknown name returns the refusal, never a wrong agent.
+ */
+export function routeToAgent(
+  serverName: string,
+  agents: ReadonlyMap<string, AgentClient>,
+): { readonly agent: AgentClient } | { readonly reply: Reply } {
+  const agent = agents.get(serverName);
+  if (agent === undefined) return { reply: unknownServer(serverName, [...agents.keys()]) };
+  return { agent };
 }
 
 /**
@@ -168,25 +228,73 @@ export async function lookupPublicIp(): Promise<{ ip: string } | { error: string
   return { error: 'No IP-lookup service responded.' };
 }
 
-export async function handleAddress(
+/**
+ * `/status` — every server's state at once, read-only (US2). Queries all agents in
+ * parallel; each server is independent, so one unreachable agent does not stop the
+ * others being reported. Names no single server — it reports them all.
+ */
+export async function handleStatus(
   interaction: ChatInputCommandInteraction,
-  gamePublicPort: number,
+  agents: ReadonlyMap<string, AgentClient>,
 ): Promise<void> {
-  await interaction.editReply({
-    embeds: [toEmbed(describeAddress(await lookupPublicIp(), gamePublicPort))],
-  });
+  const statuses = await Promise.all(
+    [...agents.entries()].map(
+      async ([name, agent]): Promise<ServerStatus> => ({ name, result: await agent.status() }),
+    ),
+  );
+  await interaction.editReply({ embeds: [toEmbed(describeStatus(statuses))] });
 }
 
 export async function handleStart(
   interaction: ChatInputCommandInteraction,
-  agent: AgentClient,
-): Promise<void> {
-  await interaction.editReply({ embeds: [toEmbed(describeStart(await agent.start()))] });
+  agents: ReadonlyMap<string, AgentClient>,
+  serverName: string,
+): Promise<AgentResult | undefined> {
+  const routed = routeToAgent(serverName, agents);
+  if ('reply' in routed) {
+    await interaction.editReply({ embeds: [toEmbed(routed.reply, serverName)] });
+    return undefined; // an unknown name launched nothing — no follow-up (FR-030)
+  }
+  const result = await routed.agent.start();
+  await interaction.editReply({ embeds: [toEmbed(describeStart(result), serverName)] });
+  // The caller arms a follow-up only on a 202 (an actual launch), never on a
+  // refusal or an unreachable host (FR-030).
+  return result;
 }
 
 export async function handleStop(
   interaction: ChatInputCommandInteraction,
-  agent: AgentClient,
+  agents: ReadonlyMap<string, AgentClient>,
+  serverName: string,
 ): Promise<void> {
-  await interaction.editReply({ embeds: [toEmbed(describeStop(await agent.stop()))] });
+  const routed = routeToAgent(serverName, agents);
+  if ('reply' in routed) {
+    await interaction.editReply({ embeds: [toEmbed(routed.reply, serverName)] });
+    return;
+  }
+  await interaction.editReply({
+    embeds: [toEmbed(describeStop(await routed.agent.stop()), serverName)],
+  });
+}
+
+/**
+ * `/address <server>` — where players connect for that one server. It names a
+ * server because two servers share the public IP but differ in game port (the
+ * multi-server config; the single-port `/address` from `main` is reconciled here).
+ */
+export async function handleAddress(
+  interaction: ChatInputCommandInteraction,
+  ports: ReadonlyMap<string, number>,
+  serverName: string,
+): Promise<void> {
+  const port = ports.get(serverName);
+  if (port === undefined) {
+    await interaction.editReply({
+      embeds: [toEmbed(unknownServer(serverName, [...ports.keys()]), serverName)],
+    });
+    return;
+  }
+  await interaction.editReply({
+    embeds: [toEmbed(describeAddress(await lookupPublicIp(), port), serverName)],
+  });
 }
