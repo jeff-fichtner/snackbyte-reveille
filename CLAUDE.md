@@ -37,6 +37,15 @@ npm run start:satisfactory -w @reveille/agent   # needs agent/.env.satisfactory
 npm start                  -w @reveille/orchestrator   # needs orchestrator/.env
 ```
 
+On `watson`, start/stop the whole control plane (orchestrator + both agents) at once:
+
+```powershell
+./scripts/reveille.ps1 start | stop | restart | status
+```
+
+It manages only those three node processes — never the game servers, which are
+started and stopped from Discord.
+
 **There is no build step.** Node 24 runs TypeScript directly by stripping types, so
 `tsc` is a type checker that never emits. `erasableSyntaxOnly` is on, which means a
 passing typecheck also guarantees the code *runs* — it rejects enums, namespaces,
