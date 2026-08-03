@@ -32,8 +32,9 @@ npm run check:all    # typecheck + lint + test — the gate
 npm run typecheck    # tsc, every workspace
 npm test             # node:test
 
-npm start -w @reveille/agent          # needs agent/.env
-npm start -w @reveille/orchestrator   # needs orchestrator/.env
+npm run start:palworld     -w @reveille/agent   # needs agent/.env.palworld
+npm run start:satisfactory -w @reveille/agent   # needs agent/.env.satisfactory
+npm start                  -w @reveille/orchestrator   # needs orchestrator/.env
 ```
 
 **There is no build step.** Node 24 runs TypeScript directly by stripping types, so
@@ -85,10 +86,12 @@ guarantee.
 
 ## Configuration
 
-`agent/.env` and `orchestrator/.env`, both gitignored — **the repository is
-public**. Copy from the `.env.example` beside each; every value is documented
-there. One agent runs **per game**, each with its own `.env` (different `GAME` and
-`AGENT_PORT`); the orchestrator has one `.env`.
+The env files are gitignored — **the repository is public**. Copy from the
+`.env.example` beside each; every value is documented there. One agent runs **per
+game**, each with its own env file, named symmetrically so neither game is the
+"default": **`agent/.env.palworld`** and **`agent/.env.satisfactory`** (each sets a
+different `GAME` and `AGENT_PORT`, launched by `npm run start:<game>`). The
+orchestrator has one **`orchestrator/.env`**.
 
 - **Agent:** `GAME` (`palworld` | `satisfactory`) selects the adapter and therefore
   which game-specific values are required. Only that game's block is consulted.
