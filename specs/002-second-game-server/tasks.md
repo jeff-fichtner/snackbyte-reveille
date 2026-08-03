@@ -131,8 +131,8 @@ that 001 is unchanged. **T022 is not optional.**
 
 - [ ] T022 Satisfactory exposure per [quickstart.md](quickstart.md) — forward **`7777/UDP` only**; add a firewall rule blocking `7777/TCP` from the LAN (mirroring `Reveille - block Palworld REST API`); confirm from **outside** the network that only `7777/UDP` answers and the HTTPS API does not (FR-014, FR-015, SC-007). **Not optional** — the 7777 UDP-game / TCP-API split is the trap (research R7)
 - [X] T023 Reconcile `/address` with the multi-server config in `orchestrator/src/index.ts` + `commands.ts` — it currently assumes one `GAME_PUBLIC_PORT`; two servers share the public IP but differ in game port, so `/address` must name a server (subcommand) or report per-server. The out-of-band `/address` from `main` meets 002's config here
-- [ ] T024 [P] Update `CLAUDE.md` — the second server, the `GameAdapter` boundary and adapter-by-config, the status verb, and Satisfactory's ports (`7777/UDP` game, `7777/TCP` API, loopback-only)
-- [ ] T025 [P] Record `DECISIONS.md` entries (Constitution V) — the `GameAdapter` seam, adapter-selection-by-config, orchestrator multi-agent config, the status verb (contract v2, additive), the US3 follow-up model, and Satisfactory-over-HTTPS with the 7777 UDP/TCP split
+- [X] T024 [P] Update `CLAUDE.md` — the second server, the `GameAdapter` boundary and adapter-by-config, the status verb, and Satisfactory's ports (`7777/UDP` game, `7777/TCP` API, loopback-only)
+- [X] T025 [P] Record `DECISIONS.md` entries (Constitution V) — the `GameAdapter` seam, adapter-selection-by-config, orchestrator multi-agent config, the status verb (contract v2, additive), the US3 follow-up model, and Satisfactory-over-HTTPS with the 7777 UDP/TCP split
 - [ ] T026 Run the full [quickstart.md](quickstart.md) end to end, including §5 — the **SC-009 regression**: every 001 behaviour (start/stop, all refusals, and the zero-tolerance save-durability, SC-002) is unchanged by adding Satisfactory
 
 ---
