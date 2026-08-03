@@ -118,6 +118,36 @@ function titleCase(name: string): string {
   return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
+/** One server's answer to `/status`: its name, and what its agent said (or didn't). */
+export interface ServerStatus {
+  readonly name: string;
+  readonly result: AgentResult;
+}
+
+/** How each derived state reads in a status list. Never mentions players (FR-011). */
+const STATE_WORD: Record<string, string> = {
+  running: 'running',
+  starting: 'starting',
+  stopped: 'stopped',
+  error: 'error',
+};
+
+/**
+ * Summarise every server's state in one read-only reply (US2). Each server is
+ * reported independently — one whose agent cannot be reached shows `unreachable`
+ * (a transport fact, not a fifth state) while the others report normally (FR-023,
+ * FR-026). Says nothing about who or how many are connected (FR-011); changes
+ * nothing (SC-005).
+ */
+export function describeStatus(statuses: readonly ServerStatus[]): Reply {
+  const lines = statuses.map(({ name, result }) => {
+    const label = `**${titleCase(name)}**`;
+    if (!result.reached) return `${label} — unreachable`;
+    return `${label} — ${STATE_WORD[result.body.state] ?? result.body.state}`;
+  });
+  return { tone: 'ok', text: lines.join('\n') };
+}
+
 /**
  * Render a reply as the embed Discord shows. When a server is named, it becomes
  * the title — so the reply says which server it acted on (FR-018), the other half
@@ -198,6 +228,23 @@ export async function lookupPublicIp(): Promise<{ ip: string } | { error: string
     }
   }
   return { error: 'No IP-lookup service responded.' };
+}
+
+/**
+ * `/status` — every server's state at once, read-only (US2). Queries all agents in
+ * parallel; each server is independent, so one unreachable agent does not stop the
+ * others being reported. Names no single server — it reports them all.
+ */
+export async function handleStatus(
+  interaction: ChatInputCommandInteraction,
+  agents: ReadonlyMap<string, AgentClient>,
+): Promise<void> {
+  const statuses = await Promise.all(
+    [...agents.entries()].map(
+      async ([name, agent]): Promise<ServerStatus> => ({ name, result: await agent.status() }),
+    ),
+  );
+  await interaction.editReply({ embeds: [toEmbed(describeStatus(statuses))] });
 }
 
 export async function handleStart(

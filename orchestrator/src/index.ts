@@ -17,7 +17,7 @@ import {
 } from 'discord.js';
 import { loadConfig } from './config.ts';
 import { AgentClient } from './agent-client.ts';
-import { handleStart, handleStop, handleAddress } from './commands.ts';
+import { handleStart, handleStop, handleAddress, handleStatus } from './commands.ts';
 
 const config = loadConfig();
 
@@ -49,6 +49,10 @@ function buildCommands() {
   const address = new SlashCommandBuilder()
     .setName('address')
     .setDescription('Show where players connect for a server.');
+  // `/status` names NO server — it reports them all, so it has no subcommand.
+  const status = new SlashCommandBuilder()
+    .setName('status')
+    .setDescription('Show the state of every server.');
 
   for (const s of config.servers) {
     start.addSubcommand((sub) => sub.setName(s.name).setDescription(`Start the ${s.name} server.`));
@@ -59,7 +63,7 @@ function buildCommands() {
       sub.setName(s.name).setDescription(`Show the address for the ${s.name} server.`),
     );
   }
-  return [start, stop, address].map((c) => c.toJSON());
+  return [start, stop, address, status].map((c) => c.toJSON());
 }
 
 const commands = buildCommands();
@@ -105,11 +109,15 @@ async function handle(interaction: ChatInputCommandInteraction): Promise<void> {
   // acknowledge and a start takes far longer than that (SC-004).
   await interaction.deferReply();
 
-  // Every verb names its server as the subcommand (FR-018/019); Discord guarantees
-  // one was chosen, since each command is nothing but subcommands.
-  const server = interaction.options.getSubcommand();
-
   try {
+    // `/status` names no server — it reports them all, and has no subcommand.
+    if (interaction.commandName === 'status') {
+      return await handleStatus(interaction, agents);
+    }
+
+    // The acting verbs each name their server as the subcommand (FR-018/019);
+    // Discord guarantees one was chosen, since each is nothing but subcommands.
+    const server = interaction.options.getSubcommand();
     switch (interaction.commandName) {
       case 'start':
         return await handleStart(interaction, agents, server);

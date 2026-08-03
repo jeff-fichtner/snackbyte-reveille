@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { describeStart, describeStop, describeAddress, toEmbed, routeToAgent } from './commands.ts';
+import {
+  describeStart,
+  describeStop,
+  describeAddress,
+  describeStatus,
+  toEmbed,
+  routeToAgent,
+} from './commands.ts';
 import { AgentClient, type AgentResult } from './agent-client.ts';
 import type { AgentResponse } from '@reveille/contract';
 
@@ -135,6 +142,30 @@ test('/address fails honestly when the IP cannot be determined', () => {
   assert.equal(r.tone, 'failed');
   assert.doesNotMatch(r.text, /\d+\.\d+\.\d+\.\d+/, 'must not invent an address');
   assert.match(r.footnote ?? '', /responded/);
+});
+
+test('/status reports every server with its own state, independently (SC-005)', () => {
+  const r = describeStatus([
+    { name: 'palworld', result: reached(200, { state: 'running' }) },
+    { name: 'satisfactory', result: reached(200, { state: 'stopped' }) },
+  ]);
+  assert.equal(r.tone, 'ok');
+  assert.match(r.text, /Palworld.*running/);
+  assert.match(r.text, /Satisfactory.*stopped/);
+});
+
+test('/status shows an unreachable agent as such, others still reported (FR-023, FR-026)', () => {
+  const r = describeStatus([
+    { name: 'palworld', result: reached(200, { state: 'running' }) },
+    { name: 'satisfactory', result: { reached: false, reason: 'ECONNREFUSED' } },
+  ]);
+  assert.match(r.text, /Palworld.*running/, 'a reachable server is still reported');
+  assert.match(r.text, /Satisfactory.*unreachable/i, 'the down agent is unreachable, not a state');
+});
+
+test('/status never says who or how many are connected (FR-011)', () => {
+  const r = describeStatus([{ name: 'palworld', result: reached(200, { state: 'running' }) }]);
+  assert.doesNotMatch(r.text, /player|connected|online|\b\d+\s*\/\s*\d+\b/i);
 });
 
 test('routeToAgent reaches exactly the named server and no other (FR-021)', () => {

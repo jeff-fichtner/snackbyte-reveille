@@ -95,9 +95,9 @@ reports each correctly and alters neither (SC-005); an agent that is down is rep
 
 ### Implementation for User Story 2
 
-- [ ] T015 [US2] Register `/status` (no subcommand — it names no server) in `orchestrator/src/index.ts`
-- [ ] T016 [US2] Implement the `/status` handler in `orchestrator/src/commands.ts` — query **every** configured agent via `agent-client.status()`, report each server's state independently, `unreachable` for any whose agent does not answer (FR-023, FR-026), each server still a valid entry. Say **nothing** about who or how many are connected (FR-011)
-- [ ] T017 [P] [US2] Unit-test `describeStatus` in `orchestrator/src/commands.test.ts` — each server rendered with its own state; unreachable distinct from stopped; no player data anywhere; the command changes nothing (read-only)
+- [X] T015 [US2] Register `/status` (no subcommand — it names no server) in `orchestrator/src/index.ts`
+- [X] T016 [US2] Implement the `/status` handler in `orchestrator/src/commands.ts` — query **every** configured agent via `agent-client.status()`, report each server's state independently, `unreachable` for any whose agent does not answer (FR-023, FR-026), each server still a valid entry. Say **nothing** about who or how many are connected (FR-011)
+- [X] T017 [P] [US2] Unit-test `describeStatus` in `orchestrator/src/commands.test.ts` — each server rendered with its own state; unreachable distinct from stopped; no player data anywhere; the command changes nothing (read-only)
 
 **Checkpoint**: `/status` reports both servers, independently, touching neither.
 
