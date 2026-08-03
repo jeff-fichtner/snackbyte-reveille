@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Reveille — start the server from Discord</title>
-<meta name="description" content="Reveille turns a self-hosted game server on and off with two slash commands, from any device. A human decides when; that's the whole policy.">
+<title>Reveille — start your game servers from Discord</title>
+<meta name="description" content="Reveille turns self-hosted game servers on and off with named slash commands, from any device — Palworld, Satisfactory, whatever's next. A human decides when; that's the whole policy.">
 <link rel="icon" href="assets/reveille-icon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -24,6 +24,7 @@
   .btn-start:hover{background:#f2b04e;}
   .btn-stop:hover{border-color:#ff6b6b;color:#ff8f8f;}
   .navlink:hover{color:#e7e9ef;}
+  .gametab:hover{border-color:#3a4356;}
 
   :focus-visible{outline:2px solid #E8A13A;outline-offset:3px;border-radius:4px;}
 
@@ -80,8 +81,8 @@
       <div style="display:inline-flex;align-items:center;gap:9px;font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.14em;color:#E8A13A;text-transform:uppercase;border:1px solid rgba(232,161,58,.32);background:rgba(232,161,58,.06);padding:6px 12px;border-radius:99px;">
         <span style="width:6px;height:6px;border-radius:99px;background:#E8A13A;display:inline-block;"></span>on-demand control plane
       </div>
-      <h1 class="hero" style="font-size:64px;line-height:1.03;letter-spacing:-.02em;margin:26px 0 0;max-width:15ch;font-weight:700;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">Start the server from Discord. Play. Put it back to sleep.</h1>
-      <p style="font-size:19px;line-height:1.6;color:#98a1b2;max-width:56ch;margin:24px 0 0;">Reveille turns a self-hosted game server on and off with two slash commands — from any device, with nothing to install but a bot. A human decides when; that's the whole policy.</p>
+      <h1 class="hero" style="font-size:64px;line-height:1.03;letter-spacing:-.02em;margin:26px 0 0;max-width:15ch;font-weight:700;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">Start any server from Discord. Play. Put it back to sleep.</h1>
+      <p style="font-size:19px;line-height:1.6;color:#98a1b2;max-width:58ch;margin:24px 0 0;">Reveille turns self-hosted game servers on and off with named slash commands — Palworld, Satisfactory, whatever's next — from any device, with nothing to install but a bot. A human decides when; that's the whole policy.</p>
       <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:34px;">
         <a href="#dashboard" style="display:inline-flex;align-items:center;gap:10px;background:#E8A13A;color:#141007;font-weight:600;padding:14px 22px;border-radius:11px;font-size:15px;">Try the dashboard →</a>
         <a href="#how" style="display:inline-flex;align-items:center;gap:10px;color:#e7e9ef;border:1px solid #2b3242;padding:14px 22px;border-radius:11px;font-size:15px;font-weight:500;">See the flow</a>
@@ -90,12 +91,12 @@
 
       <div style="display:flex;flex-wrap:wrap;gap:0;margin-top:56px;border:1px solid #1d2230;border-radius:14px;overflow:hidden;background:rgba(21,25,34,.5);max-width:820px;">
         <div style="flex:1;min-width:150px;padding:20px 24px;border-right:1px solid #1d2230;">
-          <div style="font-family:'IBM Plex Mono',monospace;font-size:26px;color:#E8A13A;font-weight:600;">~3s</div>
-          <div style="font-size:13px;color:#98a1b2;margin-top:4px;">to joinable · empty world</div>
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:26px;color:#E8A13A;font-weight:600;">2</div>
+          <div style="font-size:13px;color:#98a1b2;margin-top:4px;">games · Palworld + Satisfactory</div>
         </div>
         <div style="flex:1;min-width:150px;padding:20px 24px;border-right:1px solid #1d2230;">
-          <div style="font-family:'IBM Plex Mono',monospace;font-size:26px;color:#e7e9ef;font-weight:600;">2</div>
-          <div style="font-size:13px;color:#98a1b2;margin-top:4px;">commands · /start /stop</div>
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:26px;color:#e7e9ef;font-weight:600;">~3s</div>
+          <div style="font-size:13px;color:#98a1b2;margin-top:4px;">to joinable · empty world</div>
         </div>
         <div style="flex:1;min-width:150px;padding:20px 24px;border-right:1px solid #1d2230;">
           <div style="font-family:'IBM Plex Mono',monospace;font-size:26px;color:#e7e9ef;font-weight:600;">0</div>
@@ -103,7 +104,7 @@
         </div>
         <div style="flex:1;min-width:150px;padding:20px 24px;">
           <div style="font-family:'IBM Plex Mono',monospace;font-size:26px;color:#39d39f;font-weight:600;">1</div>
-          <div style="font-size:13px;color:#98a1b2;margin-top:4px;">open port, ever</div>
+          <div style="font-size:13px;color:#98a1b2;margin-top:4px;">open port · per game</div>
         </div>
       </div>
     </div>
@@ -114,12 +115,12 @@
     <div class="wrap two-col" style="padding-top:88px;padding-bottom:88px;">
       <div>
         <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.14em;color:#E8A13A;text-transform:uppercase;">The whole experience</div>
-        <h2 class="sec" style="font-size:38px;line-height:1.1;letter-spacing:-.015em;margin:14px 0 0;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-weight:700;">Two commands. No terminal, no admin console.</h2>
-        <p style="font-size:16px;line-height:1.65;color:#98a1b2;margin:20px 0 0;">Either player types <code style="font-family:'IBM Plex Mono',monospace;color:#E8A13A;background:rgba(232,161,58,.08);padding:2px 7px;border-radius:6px;">/start palworld</code> from a phone and joins moments later. When they're done, <code style="font-family:'IBM Plex Mono',monospace;color:#E8A13A;background:rgba(232,161,58,.08);padding:2px 7px;border-radius:6px;">/stop palworld</code> saves the world and shuts it down.</p>
+        <h2 class="sec" style="font-size:38px;line-height:1.1;letter-spacing:-.015em;margin:14px 0 0;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-weight:700;">Name a server. No terminal, no admin console.</h2>
+        <p style="font-size:16px;line-height:1.65;color:#98a1b2;margin:20px 0 0;">Either player types <code style="font-family:'IBM Plex Mono',monospace;color:#E8A13A;background:rgba(232,161,58,.08);padding:2px 7px;border-radius:6px;">/start satisfactory</code> from a phone; a moment later the bot posts again to say it's actually up, and they join. <code style="font-family:'IBM Plex Mono',monospace;color:#E8A13A;background:rgba(232,161,58,.08);padding:2px 7px;border-radius:6px;">/stop satisfactory</code> saves the world and shuts it down. <code style="font-family:'IBM Plex Mono',monospace;color:#E8A13A;background:rgba(232,161,58,.08);padding:2px 7px;border-radius:6px;">/status</code> says what's running across every server.</p>
         <ul style="list-style:none;padding:0;margin:28px 0 0;display:flex;flex-direction:column;gap:16px;">
           <li style="display:flex;gap:13px;align-items:flex-start;"><span style="color:#39d39f;font-family:'IBM Plex Mono',monospace;margin-top:1px;">✔</span><span style="font-size:15px;color:#c6ccd8;line-height:1.55;"><b style="color:#e7e9ef;">A stop never loses the world.</b> If the save can't complete, the server stays up and says so — it will not force-kill to satisfy a stop.</span></li>
-          <li style="display:flex;gap:13px;align-items:flex-start;"><span style="color:#39d39f;font-family:'IBM Plex Mono',monospace;margin-top:1px;">✔</span><span style="font-size:15px;color:#c6ccd8;line-height:1.55;"><b style="color:#e7e9ef;">Honest reporting.</b> "Started" means the launch call didn't error — never a claim the server stayed up.</span></li>
-          <li style="display:flex;gap:13px;align-items:flex-start;"><span style="color:#39d39f;font-family:'IBM Plex Mono',monospace;margin-top:1px;">✔</span><span style="font-size:15px;color:#c6ccd8;line-height:1.55;"><b style="color:#e7e9ef;">Never stops on its own.</b> Every shutdown is a human command. No timers, no presence tracking.</span></li>
+          <li style="display:flex;gap:13px;align-items:flex-start;"><span style="color:#39d39f;font-family:'IBM Plex Mono',monospace;margin-top:1px;">✔</span><span style="font-size:15px;color:#c6ccd8;line-height:1.55;"><b style="color:#e7e9ef;">It tells you when it's really up.</b> The first reply says "launching"; a second message follows when the control API confirms it's running — or honestly that it couldn't. Never a claim it can't back.</span></li>
+          <li style="display:flex;gap:13px;align-items:flex-start;"><span style="color:#39d39f;font-family:'IBM Plex Mono',monospace;margin-top:1px;">✔</span><span style="font-size:15px;color:#c6ccd8;line-height:1.55;"><b style="color:#e7e9ef;">Every command names its server.</b> One game's command never touches another, and nothing ever stops on its own — every shutdown is a human command.</span></li>
         </ul>
       </div>
 
@@ -127,7 +128,7 @@
       <div style="border:1px solid #232838;border-radius:16px;background:#12151c;overflow:hidden;box-shadow:0 30px 60px -30px rgba(0,0,0,.8);">
         <div style="display:flex;align-items:center;gap:10px;padding:13px 18px;border-bottom:1px solid #1d2230;background:#151922;">
           <span style="color:#5f6b7e;font-family:'IBM Plex Mono',monospace;">#</span>
-          <span style="font-weight:600;font-size:14px;">palworld-crew</span>
+          <span style="font-weight:600;font-size:14px;">game-crew</span>
           <span style="margin-left:auto;font-family:'IBM Plex Mono',monospace;font-size:11px;color:#5f6b7e;">private · trusted</span>
         </div>
         <div style="padding:20px 18px;display:flex;flex-direction:column;gap:18px;">
@@ -135,28 +136,35 @@
             <div style="width:36px;height:36px;border-radius:99px;background:#2b3242;color:#c6ccd8;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:14px;flex:0 0 auto;">K</div>
             <div>
               <div style="font-size:13px;"><b>Kayla</b> <span style="color:#5f6b7e;font-size:11px;">today · 21:04</span></div>
-              <div style="margin-top:4px;display:inline-flex;align-items:center;gap:6px;font-family:'IBM Plex Mono',monospace;font-size:14px;background:#1a1f2b;border:1px solid #262d3c;padding:6px 11px;border-radius:8px;"><span style="color:#5f6b7e;">/</span><span style="color:#E8A13A;">start</span> <span style="color:#c6ccd8;">palworld</span></div>
+              <div style="margin-top:4px;display:inline-flex;align-items:center;gap:6px;font-family:'IBM Plex Mono',monospace;font-size:14px;background:#1a1f2b;border:1px solid #262d3c;padding:6px 11px;border-radius:8px;"><span style="color:#5f6b7e;">/</span><span style="color:#E8A13A;">start</span> <span style="color:#c6ccd8;">satisfactory</span></div>
             </div>
           </div>
           <div style="display:flex;gap:12px;">
             <img src="assets/icon/reveille-mark-256.png" alt="reveille bot" style="width:36px;height:36px;border-radius:99px;flex:0 0 auto;"/>
             <div style="flex:1;">
               <div style="font-size:13px;"><b style="color:#e7e9ef;">reveille</b> <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;background:#5865f2;color:#fff;padding:1px 6px;border-radius:5px;margin-left:4px;">APP</span> <span style="color:#5f6b7e;font-size:11px;">today · 21:04</span></div>
-              <div style="margin-top:5px;border-left:4px solid #39d39f;background:#151922;border-radius:0 5px 5px 0;padding:10px 14px;font-size:14px;color:#c6ccd8;">Starting the server. Launch issued without error — give it a moment, then join.<div style="font-size:12px;color:#8b93a3;margin-top:8px;">That means launched, not verified. If it died on startup you will find out by failing to join.</div></div>
+              <div style="margin-top:5px;border-left:4px solid #E8A13A;background:#151922;border-radius:0 5px 5px 0;padding:10px 14px;font-size:14px;color:#c6ccd8;">Starting the server — launch issued. I'll post again when it's up.<div style="font-size:12px;color:#8b93a3;margin-top:8px;">That means launched, not verified — if it doesn't come up, the follow-up will say it couldn't be confirmed.</div></div>
+            </div>
+          </div>
+          <div style="display:flex;gap:12px;">
+            <img src="assets/icon/reveille-mark-256.png" alt="reveille bot" style="width:36px;height:36px;border-radius:99px;flex:0 0 auto;"/>
+            <div style="flex:1;">
+              <div style="font-size:13px;"><b style="color:#e7e9ef;">reveille</b> <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;background:#5865f2;color:#fff;padding:1px 6px;border-radius:5px;margin-left:4px;">APP</span> <span style="color:#5f6b7e;font-size:11px;">today · 21:04</span></div>
+              <div style="margin-top:5px;border-left:4px solid #39d39f;background:#151922;border-radius:0 5px 5px 0;padding:10px 14px;font-size:14px;color:#c6ccd8;"><b style="color:#e7e9ef;">Satisfactory is up</b> — try joining.</div>
             </div>
           </div>
           <div style="display:flex;gap:12px;">
             <div style="width:36px;height:36px;border-radius:99px;background:#2b3242;color:#c6ccd8;display:flex;align-items:center;justify-content:center;font-weight:600;font-size:14px;flex:0 0 auto;">J</div>
             <div>
-              <div style="font-size:13px;"><b>Jonah</b> <span style="color:#5f6b7e;font-size:11px;">today · 21:04</span></div>
-              <div style="margin-top:4px;display:inline-flex;align-items:center;gap:6px;font-family:'IBM Plex Mono',monospace;font-size:14px;background:#1a1f2b;border:1px solid #262d3c;padding:6px 11px;border-radius:8px;"><span style="color:#5f6b7e;">/</span><span style="color:#E8A13A;">stop</span> <span style="color:#c6ccd8;">palworld</span></div>
+              <div style="font-size:13px;"><b>Jonah</b> <span style="color:#5f6b7e;font-size:11px;">today · 21:06</span></div>
+              <div style="margin-top:4px;display:inline-flex;align-items:center;gap:6px;font-family:'IBM Plex Mono',monospace;font-size:14px;background:#1a1f2b;border:1px solid #262d3c;padding:6px 11px;border-radius:8px;"><span style="color:#5f6b7e;">/</span><span style="color:#E8A13A;">status</span></div>
             </div>
           </div>
           <div style="display:flex;gap:12px;">
             <img src="assets/icon/reveille-mark-256.png" alt="reveille bot" style="width:36px;height:36px;border-radius:99px;flex:0 0 auto;"/>
             <div style="flex:1;">
               <div style="font-size:13px;"><b style="color:#e7e9ef;">reveille</b> <span style="font-family:'IBM Plex Mono',monospace;font-size:10px;background:#5865f2;color:#fff;padding:1px 6px;border-radius:5px;margin-left:4px;">APP</span></div>
-              <div style="margin-top:5px;border-left:3px solid #ff6b6b;background:#151922;border-radius:0 9px 9px 0;padding:10px 14px;font-size:14px;color:#c6ccd8;">A start is in progress — try again in a moment. <span style="color:#5f6b7e;">The launching process is left untouched.</span></div>
+              <div style="margin-top:5px;border-left:4px solid #39d39f;background:#151922;border-radius:0 5px 5px 0;padding:10px 14px;font-size:14px;color:#c6ccd8;font-family:'IBM Plex Mono',monospace;"><b style="color:#e7e9ef;">Palworld</b> — stopped<br/><b style="color:#e7e9ef;">Satisfactory</b> — running</div>
             </div>
           </div>
         </div>
@@ -180,7 +188,7 @@
           </div>
           <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#E8A13A;">×1 · exactly one</div>
           <h3 style="font-size:20px;margin:6px 0 0;font-weight:700;">Orchestrator</h3>
-          <p style="font-size:14px;color:#98a1b2;line-height:1.55;margin:12px 0 0;">Decides <b style="color:#e7e9ef;">when</b>. Takes the Discord command, serializes it to one clean winner, and asks the host.</p>
+          <p style="font-size:14px;color:#98a1b2;line-height:1.55;margin:12px 0 0;">Decides <b style="color:#e7e9ef;">when</b>. Takes the named Discord command, routes it to the right server, and serializes it to one clean winner.</p>
           <div style="margin-top:18px;padding-top:16px;border-top:1px solid #1d2230;font-size:13px;color:#c6ccd8;"><span style="color:#5f6b7e;">welded to →</span> nothing</div>
           <div style="font-size:13px;color:#c6ccd8;margin-top:6px;"><span style="color:#5f6b7e;">runs →</span> wherever is always-on</div>
         </div>
@@ -188,9 +196,9 @@
           <div style="width:48px;height:48px;border-radius:12px;background:rgba(232,161,58,.1);border:1px solid rgba(232,161,58,.3);display:flex;align-items:center;justify-content:center;margin-bottom:18px;">
             <img src="assets/reveille-mark.svg" alt="" style="width:26px;height:26px;"/>
           </div>
-          <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#E8A13A;">1 per server</div>
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#E8A13A;">1 per server · Palworld, Satisfactory</div>
           <h3 style="font-size:20px;margin:6px 0 0;font-weight:700;">Agent</h3>
-          <p style="font-size:14px;color:#98a1b2;line-height:1.55;margin:12px 0 0;">Knows <b style="color:#e7e9ef;">how</b>. Spawns and gracefully stops the game process; owns the save-before-exit guarantee.</p>
+          <p style="font-size:14px;color:#98a1b2;line-height:1.55;margin:12px 0 0;">Knows <b style="color:#e7e9ef;">how</b>. One adapter per game behind a fixed interface — only the adapter knows which game it is. Owns the save-before-exit guarantee.</p>
           <div style="margin-top:18px;padding-top:16px;border-top:1px solid #1d2230;font-size:13px;color:#c6ccd8;"><span style="color:#5f6b7e;">welded to →</span> a game server process</div>
           <div style="font-size:13px;color:#c6ccd8;margin-top:6px;"><span style="color:#5f6b7e;">runs →</span> on that server's machine</div>
         </div>
@@ -208,7 +216,7 @@
 
       <div style="margin-top:22px;border:1px dashed #2b3242;border-radius:14px;padding:22px 26px;display:flex;gap:18px;align-items:center;background:rgba(21,25,34,.4);flex-wrap:wrap;">
         <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#E8A13A;flex:0 0 auto;">growth →</div>
-        <p style="margin:0;font-size:15px;color:#c6ccd8;line-height:1.55;flex:1;min-width:260px;">More rows, never new kinds. A second game is an agent; a second machine is an agent plus a MAC address; a second network is an emitter. <b style="color:#e7e9ef;">If adding a capability needs a new kind of thing rather than a new row, something was drawn wrong.</b></p>
+        <p style="margin:0;font-size:15px;color:#c6ccd8;line-height:1.55;flex:1;min-width:260px;">More rows, never new kinds. <b style="color:#e7e9ef;">Satisfactory joined Palworld exactly this way</b> — one more adapter, one more address in config, no new kind of thing. A second machine is an agent plus a MAC address; a second network is an emitter. If adding a capability needs a new kind of thing rather than a new row, something was drawn wrong.</p>
       </div>
     </div>
   </section>
@@ -218,18 +226,27 @@
     <div class="wrap" style="padding-top:88px;padding-bottom:88px;">
       <div style="max-width:60ch;">
         <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.14em;color:#E8A13A;text-transform:uppercase;">Interactive demo</div>
-        <h2 class="sec" style="font-size:38px;line-height:1.1;letter-spacing:-.015em;margin:14px 0 0;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-weight:700;">The same two commands, as a panel.</h2>
-        <p style="font-size:16px;line-height:1.65;color:#98a1b2;margin:18px 0 0;">A simulation running entirely in your browser — nothing is connected to a real host. Try it anyway: the refusals below are the real spec (FR-008, FR-017, SC-002).</p>
+        <h2 class="sec" style="font-size:38px;line-height:1.1;letter-spacing:-.015em;margin:14px 0 0;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-weight:700;">The same commands, for each server.</h2>
+        <p style="font-size:16px;line-height:1.65;color:#98a1b2;margin:18px 0 0;">A simulation running entirely in your browser — nothing is connected to a real host. Switch servers, and each holds its own state; the refusals below are the real spec (FR-008, FR-017, FR-021, SC-002).</p>
       </div>
 
       <div class="dash-col" style="margin-top:40px;">
         <!-- control card -->
         <div style="border:1px solid #232838;border-radius:16px;background:#12151c;overflow:hidden;">
+          <!-- server selector -->
+          <div style="display:flex;gap:8px;padding:14px 16px;border-bottom:1px solid #1d2230;background:#0f1218;">
+            <button id="tab-palworld" class="gametab" data-game="palworld" type="button" style="cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:8px;background:#1a1f2b;color:#e7e9ef;border:1px solid #E8A13A;padding:8px 14px;border-radius:9px;font-size:13px;font-weight:600;">
+              <span class="tab-dot" style="width:7px;height:7px;border-radius:99px;background:#5f6b7e;display:inline-block;"></span>Palworld
+            </button>
+            <button id="tab-satisfactory" class="gametab" data-game="satisfactory" type="button" style="cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:8px;background:transparent;color:#98a1b2;border:1px solid #262d3c;padding:8px 14px;border-radius:9px;font-size:13px;font-weight:600;">
+              <span class="tab-dot" style="width:7px;height:7px;border-radius:99px;background:#5f6b7e;display:inline-block;"></span>Satisfactory
+            </button>
+          </div>
           <div style="padding:20px 24px;border-bottom:1px solid #1d2230;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
             <img src="assets/reveille-icon.svg" alt="" style="width:34px;height:34px;border-radius:9px;"/>
             <div>
-              <div style="font-weight:600;font-size:15px;">Palworld dedicated</div>
-              <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#5f6b7e;">host · <span id="host">watson</span></div>
+              <div style="font-weight:600;font-size:15px;"><span id="srv-name">Palworld</span> dedicated</div>
+              <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:#5f6b7e;">host · <span id="host">watson</span> · <span id="srv-port">8211/udp</span></div>
             </div>
             <div style="margin-left:auto;display:inline-flex;align-items:center;gap:8px;padding:7px 13px;border-radius:99px;border:1px solid #262d3c;background:#151922;">
               <span id="state-dot" style="width:8px;height:8px;border-radius:99px;background:#5f6b7e;display:inline-block;animation:revdot 1.6s ease-in-out infinite;"></span>
@@ -263,7 +280,7 @@
             <span style="width:11px;height:11px;border-radius:99px;background:#ff6b6b;display:inline-block;"></span>
             <span style="width:11px;height:11px;border-radius:99px;background:#E8A13A;display:inline-block;"></span>
             <span style="width:11px;height:11px;border-radius:99px;background:#39d39f;display:inline-block;"></span>
-            <span style="margin-left:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:#5f6b7e;">agent.log — tail -f</span>
+            <span style="margin-left:8px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:#5f6b7e;">orchestrator.log — tail -f</span>
           </div>
           <div style="padding:18px;font-family:'IBM Plex Mono',monospace;font-size:13px;line-height:1.9;flex:1;min-height:230px;overflow-x:auto;">
             <div id="log"></div>
@@ -278,7 +295,7 @@
   <footer style="border-top:1px solid #1d2230;">
     <div class="wrap" style="padding-top:40px;padding-bottom:40px;display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap;">
       <img src="assets/reveille-lockup.svg" alt="reveille" style="height:26px;filter:brightness(0) invert(1);opacity:.75;"/>
-      <div style="font-size:13px;color:#5f6b7e;">Palworld today · more rows, never new kinds · MIT</div>
+      <div style="font-size:13px;color:#5f6b7e;">Palworld + Satisfactory · more rows, never new kinds · MIT</div>
       <div style="display:flex;gap:22px;font-size:14px;">
         <a href="#how" class="navlink" style="color:#98a1b2;">Flow</a>
         <a href="#architecture" class="navlink" style="color:#98a1b2;">Architecture</a>
@@ -289,9 +306,11 @@
 </div>
 
 <script>
-// Simulated agent, ported from the design's DCLogic component. Nothing here talks
-// to a real host — the state machine and its refusals mirror the spec so the demo
-// cannot claim behaviour the system does not have.
+// Simulated control plane, ported from the design's DCLogic component and extended
+// for 002's two servers. Nothing here talks to a real host — each server's state
+// machine and its refusals mirror the spec so the demo cannot claim behaviour the
+// system does not have. One command names its server; one server's command never
+// touches another (FR-021).
 (function () {
   'use strict';
 
@@ -303,29 +322,42 @@
     running:  { label: 'RUNNING',  color: '#39d39f', dot: '#39d39f' }
   };
   var LOG_COLORS = { ok: '#39d39f', amber: '#E8A13A', warn: '#ff6b6b', muted: '#7a8598' };
-  var MAX_LINES = 8;
+  var MAX_LINES = 9;
+
+  // Each server holds its own independent state — the whole point of 002.
+  var servers = {
+    palworld: {
+      name: 'Palworld', port: '8211/udp', join: 2600, save: 1600,
+      up: 'running — REST API answered · join now',
+      state: 'stopped', uptime: 0, startTimer: null, stopTimer: null, uptimeTimer: null
+    },
+    satisfactory: {
+      name: 'Satisfactory', port: '7777/udp', join: 4200, save: 1900,
+      up: 'running — isGameRunning=true · join now',
+      state: 'stopped', uptime: 0, startTimer: null, stopTimer: null, uptimeTimer: null
+    }
+  };
+  var active = 'palworld';
 
   var el = {
-    dot:    document.getElementById('state-dot'),
-    label:  document.getElementById('state-label'),
-    uptime: document.getElementById('uptime'),
-    log:    document.getElementById('log'),
-    host:   document.getElementById('host'),
-    start:  document.getElementById('btn-start'),
-    stop:   document.getElementById('btn-stop')
+    dot:     document.getElementById('state-dot'),
+    label:   document.getElementById('state-label'),
+    uptime:  document.getElementById('uptime'),
+    log:     document.getElementById('log'),
+    host:    document.getElementById('host'),
+    srvName: document.getElementById('srv-name'),
+    srvPort: document.getElementById('srv-port'),
+    start:   document.getElementById('btn-start'),
+    stop:    document.getElementById('btn-stop'),
+    tabs:    { palworld: document.getElementById('tab-palworld'), satisfactory: document.getElementById('tab-satisfactory') }
   };
 
-  var srv = 'stopped';
-  var uptime = 0;
   var lines = [
-    { t: '21:00:02', cls: 'muted', msg: 'watson online · agent listening on 127.0.0.1' },
-    { t: '21:00:02', cls: 'muted', msg: 'ready — awaiting /start or /stop' }
+    { t: '21:00:02', cls: 'muted', msg: 'watson online · palworld + satisfactory agents on 127.0.0.1' },
+    { t: '21:00:02', cls: 'muted', msg: 'ready — /start /stop /status name a server' }
   ];
-  var startTimer = null, stopTimer = null, uptimeTimer = null;
 
-  function now() {
-    return new Date().toTimeString().slice(0, 8);
-  }
+  function now() { return new Date().toTimeString().slice(0, 8); }
 
   function push(cls, msg) {
     lines.push({ t: now(), cls: cls, msg: msg });
@@ -350,64 +382,92 @@
     });
   }
 
+  // The little dot on each tab is the /status glance — every server at once.
+  function renderTabs() {
+    Object.keys(servers).forEach(function (key) {
+      var tab = el.tabs[key];
+      var isActive = key === active;
+      tab.style.borderColor = isActive ? '#E8A13A' : '#262d3c';
+      tab.style.background = isActive ? '#1a1f2b' : 'transparent';
+      tab.style.color = isActive ? '#e7e9ef' : '#98a1b2';
+      tab.querySelector('.tab-dot').style.background = STATES[servers[key].state].dot;
+    });
+  }
+
   function renderState() {
-    var s = STATES[srv];
+    var srv = servers[active];
+    var s = STATES[srv.state];
+    el.srvName.textContent = srv.name;
+    el.srvPort.textContent = srv.port;
     el.dot.style.background = s.dot;
     el.label.style.color = s.color;
     el.label.textContent = s.label;
-    if (srv === 'running') {
-      var mm = String(Math.floor(uptime / 60)).padStart(2, '0');
-      var ss = String(uptime % 60).padStart(2, '0');
+    if (srv.state === 'running') {
+      var mm = String(Math.floor(srv.uptime / 60)).padStart(2, '0');
+      var ss = String(srv.uptime % 60).padStart(2, '0');
       el.uptime.textContent = mm + ':' + ss;
     } else {
       el.uptime.textContent = '—';
     }
+    renderTabs();
   }
 
-  function tick() {
-    clearInterval(uptimeTimer);
-    uptimeTimer = setInterval(function () {
-      uptime += 1;
-      renderState();
+  function tick(key) {
+    var srv = servers[key];
+    clearInterval(srv.uptimeTimer);
+    srv.uptimeTimer = setInterval(function () {
+      srv.uptime += 1;
+      if (key === active) renderState();
     }, 1000);
   }
 
   function start() {
-    if (srv === 'running') { push('warn', '/start refused — already running (FR-008)'); return; }
-    if (srv === 'starting' || srv === 'saving') { push('warn', '/start refused — a start is already in progress'); return; }
-    push('amber', '/start — launching Palworld on ' + HOST + '…');
-    srv = 'starting';
+    var key = active, srv = servers[key];
+    if (srv.state === 'running') { push('warn', '/start ' + key + ' refused — already running (FR-008)'); return; }
+    if (srv.state === 'starting' || srv.state === 'saving') { push('warn', '/start ' + key + ' refused — a start is already in progress'); return; }
+    push('amber', '/start ' + key + ' — launching on ' + HOST + '…');
+    srv.state = 'starting';
     renderState();
-    clearTimeout(startTimer);
-    startTimer = setTimeout(function () {
-      srv = 'running';
-      uptime = 0;
-      push('ok', 'running — REST API answered · join now');
+    clearTimeout(srv.startTimer);
+    srv.startTimer = setTimeout(function () {
+      srv.state = 'running';
+      srv.uptime = 0;
+      push('ok', key + ' ' + srv.up);
       renderState();
-      tick();
-    }, 2600);
+      tick(key);
+    }, srv.join);
   }
 
   function stop() {
-    if (srv === 'stopped')  { push('warn', '/stop refused — already stopped'); return; }
-    if (srv === 'starting') { push('warn', '/stop refused — a start is in progress (FR-017)'); return; }
-    if (srv === 'saving')   { return; }
-    clearInterval(uptimeTimer);
-    push('amber', '/stop — saving world…');
-    srv = 'saving';
+    var key = active, srv = servers[key];
+    if (srv.state === 'stopped')  { push('warn', '/stop ' + key + ' refused — already stopped'); return; }
+    if (srv.state === 'starting') { push('warn', '/stop ' + key + ' refused — a start is in progress (FR-017)'); return; }
+    if (srv.state === 'saving')   { return; }
+    clearInterval(srv.uptimeTimer);
+    push('amber', '/stop ' + key + ' — saving world…');
+    srv.state = 'saving';
     renderState();
-    clearTimeout(stopTimer);
-    stopTimer = setTimeout(function () {
-      srv = 'stopped';
-      uptime = 0;
-      push('ok', 'stopped — world saved (SC-002)');
+    clearTimeout(srv.stopTimer);
+    srv.stopTimer = setTimeout(function () {
+      srv.state = 'stopped';
+      srv.uptime = 0;
+      push('ok', key + ' stopped — world saved (SC-002)');
       renderState();
-    }, 1600);
+    }, srv.save);
+  }
+
+  function select(key) {
+    if (!servers[key] || key === active) { active = key; renderState(); return; }
+    active = key;
+    renderState();
   }
 
   el.host.textContent = HOST;
   el.start.addEventListener('click', start);
   el.stop.addEventListener('click', stop);
+  Object.keys(el.tabs).forEach(function (key) {
+    el.tabs[key].addEventListener('click', function () { select(key); });
+  });
   renderLog();
   renderState();
 })();
