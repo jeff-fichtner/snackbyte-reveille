@@ -11,6 +11,7 @@
 import type { ServerState } from '@reveille/contract';
 import type { AgentConfig } from './config.ts';
 import { createPalworldAdapter } from './palworld.ts';
+import { createSatisfactoryAdapter } from './satisfactory.ts';
 
 export interface GameAdapter {
   /**
@@ -33,8 +34,6 @@ export function createAdapter(config: AgentConfig): GameAdapter {
     case 'palworld':
       return createPalworldAdapter(config);
     case 'satisfactory':
-      // Filled in by T011 (US1), once the adapter is written against M0's
-      // observations rather than docs. Until then, fail loud rather than pretend.
-      throw new Error('The Satisfactory adapter is not implemented yet (T011).');
+      return createSatisfactoryAdapter(config);
   }
 }

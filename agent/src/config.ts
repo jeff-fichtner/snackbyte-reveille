@@ -60,6 +60,8 @@ export interface PalworldConfig extends CommonConfig {
 
 export interface SatisfactoryConfig extends CommonConfig {
   readonly game: 'satisfactory';
+  /** Full path to FactoryServer.exe (the launcher, not the child). */
+  readonly satisfactoryExePath: string;
   /** Base URL of the Satisfactory HTTPS API, loopback only (self-signed TLS). */
   readonly satisfactoryApiBaseUrl: string;
   /** Admin password set when the server was claimed; Bearer login depends on it. */
@@ -95,6 +97,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AgentConfig {
       game: 'satisfactory',
       port,
       stopTimeoutMs,
+      satisfactoryExePath: required('SATISFACTORY_EXE_PATH', env),
       satisfactoryApiBaseUrl: required('SATISFACTORY_API_BASE_URL', env).replace(/\/+$/, ''),
       satisfactoryAdminPassword: required('SATISFACTORY_ADMIN_PASSWORD', env),
       satisfactorySessionName: required('SATISFACTORY_SESSION_NAME', env),

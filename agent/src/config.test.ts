@@ -14,6 +14,7 @@ const complete = {
 const satisfactory = {
   GAME: 'satisfactory',
   AGENT_PORT: '8301',
+  SATISFACTORY_EXE_PATH: 'C:\\SatisfactoryDedicatedServer\\FactoryServer.exe',
   SATISFACTORY_API_BASE_URL: 'https://127.0.0.1:7777/api/v1',
   SATISFACTORY_ADMIN_PASSWORD: 'not-blank',
   SATISFACTORY_SESSION_NAME: 'Reveille-M0',
