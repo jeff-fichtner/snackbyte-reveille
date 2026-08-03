@@ -14,19 +14,19 @@
   },
   "card": {
     "id": "86bb78w0f",
-    "hash": "sha256:9d5a95f7389f861a6646659780fbf2dd46dd9e44457dc6272d5af594c63e5056"
+    "hash": "sha256:ef66b804e9e1ac24d5d7b604280618acbc83b78ea2fc93d29793471b7d37b975"
   },
   "userStories": [
     {
       "us": "US1",
       "id": "86bb78w42",
-      "hash": "sha256:adeb681dbfe2d4aef321a20680d360552e5e7e7e7dd9bb83654b373c64d2bad5",
+      "hash": "sha256:8b1a45d895b2797d34d4294e171c70d3ff9305ef40d934bcb517ec149ee5a055",
       "dependsOn": []
     },
     {
       "us": "US2",
       "id": "86bb78w82",
-      "hash": "sha256:a82b7a51b9ce6b2f77c03f7184126265f651df507ffc3efc0e637272ec8485fe",
+      "hash": "sha256:0e18a1b23ec9b623edf45a0c07f05b2bb19aa520e6bef20d51bf46c45c172cfa",
       "dependsOn": [
         "US1"
       ]
@@ -34,7 +34,7 @@
     {
       "us": "US3",
       "id": "86bb78w8z",
-      "hash": "sha256:ba34b3ccb279c4f9cc71618e56cef2419ba7f15b46599995b02c17d48ddf1dce",
+      "hash": "sha256:0637cb025669c3cbc44839221a3d8434b05ea4d33978c992357143a94f8502b4",
       "dependsOn": [
         "US1",
         "US2"
@@ -43,6 +43,7 @@
   ],
   "lifecycle": {
     "analyzed": true,
-    "implementStarted": true
+    "implementStarted": true,
+    "verifyPassed": true
   }
 }
