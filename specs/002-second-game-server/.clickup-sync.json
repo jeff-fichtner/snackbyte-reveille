@@ -14,7 +14,7 @@
   },
   "card": {
     "id": "86bb78w0f",
-    "hash": "sha256:a13facc6b58ef4e6830c1000d84811cfa7f5562ac0996c1c40011ac82b447f45"
+    "hash": "sha256:437ba508516b88976c4211c46e2f7b43e084fc150efa5fe89d506843572bf3ad"
   },
   "userStories": [
     {
@@ -34,11 +34,14 @@
     {
       "us": "US3",
       "id": "86bb78w8z",
-      "hash": "sha256:c0637169f661002e60be66092c28808fd85b415dff251bbbdf9b3b2b482a29c4",
+      "hash": "sha256:ba34b3ccb279c4f9cc71618e56cef2419ba7f15b46599995b02c17d48ddf1dce",
       "dependsOn": [
         "US1",
         "US2"
       ]
     }
-  ]
+  ],
+  "lifecycle": {
+    "analyzed": true
+  }
 }
