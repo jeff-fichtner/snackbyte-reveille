@@ -14,7 +14,7 @@
   },
   "card": {
     "id": "86bb7za0g",
-    "hash": "sha256:f00ce817728d90d80f92d7f978989027cb66c252daaf957a3bb12fb89ae4876a"
+    "hash": "sha256:f7c1ca253d627775472f31960d47489efc9c0970c9856429224c0150006e4682"
   },
   "userStories": [
     {
@@ -33,6 +33,7 @@
     }
   ],
   "lifecycle": {
-    "analyzed": true
+    "analyzed": true,
+    "implementStarted": true
   }
 }
