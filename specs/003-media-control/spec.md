@@ -29,6 +29,17 @@ control (pause/resume) is genuinely a different shape from a process lifecycle
 — while reusing the whole orchestrator↔agent seam, the deployment model, and the
 no-auth-because-loopback trade.
 
+## Clarifications
+
+### Session 2026-08-03
+
+- Q: `/status` already exists and reports the game servers — how should the media
+  player's playback state be shown? → A: **Fold it into the existing `/status`.** One
+  command reports every controlled target on the host — each game server in its state
+  (running/starting/stopped/unreachable) and the media player in its state
+  (playing/paused/stopped/unreachable). Media gets **no** separate status command;
+  `/status` becomes "what's happening on watson," across games and media alike.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Pause and resume the show (Priority: P1) 🎯 MVP
@@ -52,24 +63,27 @@ resumes it from the same spot. No content was chosen or changed by Discord.
 
 ---
 
-### User Story 2 - See whether it's playing (Priority: P2)
+### User Story 2 - See it in /status (Priority: P2)
 
-Before acting — or just to check — a member asks whether the show is currently playing,
-paused, or nothing is on.
+The media player's playback state shows up in the **same `/status`** that already
+reports the game servers — so one command answers "what's happening on watson?" across
+everything: which games are up, and whether the show is playing, paused, or off.
 
 **Why this priority**: Useful, but the pause/resume pair delivers the value on its own;
-knowing the state is a convenience that avoids a "did that work?" guess.
+seeing the state in `/status` is a convenience that avoids a "did that work?" guess and
+gives one place to look. It folds into the existing command rather than adding a new one.
 
 **Independent Test**: With the player in each of its states (playing, paused, nothing
-loaded, player closed), the status command reports that state correctly, and reports
-"unreachable" distinctly when the player or its agent cannot be reached.
+loaded, player closed), `/status` lists the media player with that state — alongside the
+game servers, each in its own vocabulary — and shows "unreachable" distinctly when the
+player or its agent cannot be reached.
 
 **Acceptance Scenarios**:
 
-1. **Given** a video is playing, **When** a member asks for status, **Then** the reply says it is playing.
-2. **Given** the video is paused, **When** a member asks for status, **Then** the reply says it is paused.
-3. **Given** nothing is loaded, **When** a member asks for status, **Then** the reply says nothing is playing.
-4. **Given** the player (or its agent) is not running, **When** a member asks for status, **Then** the reply says it could not be reached — clearly distinct from "paused" or "stopped".
+1. **Given** a video is playing, **When** a member runs `/status`, **Then** the media player is listed as *playing*, alongside the game servers.
+2. **Given** the video is paused, **When** a member runs `/status`, **Then** the media player is listed as *paused*.
+3. **Given** nothing is loaded, **When** a member runs `/status`, **Then** the media player is listed as *stopped* (nothing playing).
+4. **Given** the player (or its agent) is not running, **When** a member runs `/status`, **Then** the media player is listed as *unreachable* — distinct from paused or stopped — and the game servers still report normally.
 
 ---
 
@@ -100,9 +114,12 @@ loaded, player closed), the status command reports that state correctly, and rep
   commands.
 - **FR-002**: Any member MUST be able to **resume** (play) a paused video from Discord,
   which continues from where it was paused.
-- **FR-003**: A member MUST be able to ask the player's **current playback state** and
-  receive one of: *playing*, *paused*, *stopped* (nothing loaded / not playing), or
-  *unreachable* (the player or its agent could not be reached).
+- **FR-003**: The media player's **current playback state** — *playing*, *paused*,
+  *stopped* (nothing loaded / not playing), or *unreachable* (the player or its agent
+  could not be reached) — MUST appear in the **existing `/status`** command, listed
+  alongside the game servers (each controlled target in its own state vocabulary). There
+  is no separate media-status command; extending `/status` is **additive** — how the game
+  servers report is unchanged (FR-013).
 - **FR-004**: The system MUST act **only on the content already loaded** in the player.
   It MUST NOT select, open, browse, list, search, or change what is playing, and MUST
   NOT expose any file, library, or playlist surface. Choosing the show is the operator's
@@ -152,8 +169,9 @@ loaded, player closed), the status command reports that state correctly, and rep
 - **Playback state** (derived per request, never stored): *playing*, *paused*, or
   *stopped*, asked of the player at the moment of the command. *Unreachable* is a
   transport fact layered on top, not a fourth playback state.
-- **Command** (transient, per interaction): pause, resume, and status — each a single
-  Discord action, acting on the one configured player.
+- **Command** (transient, per interaction): pause and resume, each a single Discord
+  action on the one configured player. Playback state is read through the **shared
+  `/status`** (folded in — not a media-specific command).
 
 ## Success Criteria *(mandatory)*
 
@@ -161,9 +179,9 @@ loaded, player closed), the status command reports that state correctly, and rep
   command and send it, with no argument to fill in.
 - **SC-002**: A pause or resume takes visible effect on the host within **~2 seconds** of
   the command.
-- **SC-003**: The status command reflects the **real** player state in every case
-  (playing, paused, stopped), and reports *unreachable* — never a playback state — when
-  the player or its agent cannot be reached.
+- **SC-003**: `/status` reflects the **real** media player state in every case (playing,
+  paused, stopped), and lists it as *unreachable* — never a playback state — when the
+  player or its agent cannot be reached.
 - **SC-004**: The feature adds **zero inbound network exposure**: an external port scan of
   the host shows no new open port as a result of it.
 - **SC-005**: The one-time operator setup (enable the player's local control interface and
