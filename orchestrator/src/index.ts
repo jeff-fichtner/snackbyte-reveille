@@ -15,6 +15,7 @@
 import {
   Client,
   GatewayIntentBits,
+  MessageFlags,
   REST,
   Routes,
   type ChatInputCommandInteraction,
@@ -31,6 +32,9 @@ import {
   handleResume,
   handleSeek,
   handleStep,
+  buildCommandGroups,
+  describeCommandList,
+  toEmbed,
   DEFAULT_SEEK_SECONDS,
 } from './commands.ts';
 import { armFollowup, shouldFollowUp } from './followup.ts';
@@ -113,6 +117,27 @@ client.on('interactionCreate', (interaction) => {
 });
 
 async function handle(interaction: ChatInputCommandInteraction, rt: TenantRuntime): Promise<void> {
+  // `/help` is answered BEFORE the defer, and this ordering is load-bearing (006).
+  //
+  // Discord fixes a reply's visibility when it is deferred, so a publicly-deferred reply
+  // can never become ephemeral afterwards — FR-005 is unsatisfiable downstream of the
+  // `deferReply()` below. It is a clean early return rather than an awkward one because
+  // `/help` contacts nothing (FR-015): it is a pure in-memory render, so it cannot miss
+  // the ~3s window and has no reason to defer at all. The requirement that it touch no
+  // network is what earns it the immediate reply.
+  //
+  // It replies within its own branch: the `catch` further down calls `editReply`, which
+  // assumes a prior defer, so it could not answer for a command that never deferred.
+  //
+  // Built from THIS tenant's targets, so the listing inherits 004's isolation
+  // structurally. It is unreachable from an unconfigured guild for free — that guild
+  // never resolves to a runtime, and this function is not called at all (004 FR-006).
+  if (interaction.commandName === 'help') {
+    const reply = describeCommandList(buildCommandGroups(rt.tenant.servers));
+    await interaction.reply({ embeds: [toEmbed(reply)], flags: MessageFlags.Ephemeral });
+    return;
+  }
+
   // Defer FIRST, before touching the agent. Discord gives ~3 seconds to
   // acknowledge and a start takes far longer than that (SC-004).
   await interaction.deferReply();

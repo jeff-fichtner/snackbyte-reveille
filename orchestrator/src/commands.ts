@@ -109,7 +109,11 @@ export function buildCommandGroups(servers: readonly ControlledServer[]): Comman
       cmd.addIntegerOption((o) =>
         o
           .setName('seconds')
-          .setDescription(`How many seconds to jump ${verb} (default ${DEFAULT_SEEK_SECONDS}).`)
+          // Deliberately does not repeat the verb: the command's own description already
+          // says which way it jumps, and `/help` shows the two together (006). Tightening
+          // it here fixes the Discord picker and the listing at once — which is the point
+          // of there being one copy.
+          .setDescription(`How many seconds (default ${DEFAULT_SEEK_SECONDS}).`)
           .setRequired(false),
       );
       mediaCmds.push(cmd);
@@ -124,6 +128,12 @@ export function buildCommandGroups(servers: readonly ControlledServer[]): Comman
     label: 'Everything',
     commands: [
       new SlashCommandBuilder().setName('status').setDescription('Show the state of every target.'),
+      // `/help` takes no arguments (006 FR-001) — asking what you can do must not itself
+      // require knowing something. This description is what the listing shows, verbatim:
+      // there is no second copy of it anywhere.
+      new SlashCommandBuilder()
+        .setName('help')
+        .setDescription('List the commands you can run here.'),
     ],
   });
 
@@ -140,6 +150,61 @@ export function buildCommands(servers: readonly ControlledServer[]) {
   return buildCommandGroups(servers)
     .flatMap((g) => g.commands)
     .map((c) => c.toJSON());
+}
+
+/** One line of `/help`: what a member types, and what it does (006). */
+export interface CommandEntry {
+  /** Exactly what a member types — `/start palworld`, `/forward [seconds]`, `/pause`. */
+  readonly form: string;
+  /** Taken **verbatim** from the registered command or subcommand. Never authored here. */
+  readonly description: string;
+}
+
+/** Discord's option type tags. Only the two that appear in this system are named. */
+const SUBCOMMAND_OPTION = 1;
+
+/**
+ * Turn one registered command into its **runnable forms** (006 FR-002).
+ *
+ * A command carrying subcommands is not itself runnable — `/start` does nothing, while
+ * `/start palworld` does — so it yields one entry per subcommand, using that
+ * subcommand's own description, which already names the target (FR-012 falls out of this
+ * rather than needing its own code).
+ *
+ * **No description is written here.** Every one is copied from the registered command.
+ * That is the whole contract: structure may be added around a description (a heading, an
+ * argument suffix) but never the description itself, so there is no second copy to drift.
+ */
+export function toCommandEntries(command: SlashCommandBuilder): CommandEntry[] {
+  const json = command.toJSON() as {
+    name: string;
+    description: string;
+    options?: { type: number; name: string; description: string; required?: boolean }[];
+  };
+  const options = json.options ?? [];
+
+  const subcommands = options.filter((o) => o.type === SUBCOMMAND_OPTION);
+  if (subcommands.length > 0) {
+    return subcommands.map((sub) => ({
+      form: `/${json.name} ${sub.name}`,
+      description: sub.description,
+    }));
+  }
+
+  // Not a subcommand group: any options are arguments on the command itself. `<name>` is
+  // required, `[name]` optional — the convention every CLI help text uses.
+  const args = options
+    .map((o) => (o.required === true ? `<${o.name}>` : `[${o.name}]`))
+    .join(' ');
+
+  // FR-003 wants the argument's default stated, and the registered option description
+  // already carries it — so it is appended verbatim rather than re-derived. Extracting
+  // "30" out of that sentence would mean parsing prose into a fact, which is authoring by
+  // another name and would drift the moment the wording changed.
+  const argHelp = options.map((o) => o.description).join(' ');
+  const description = argHelp ? `${json.description} ${argHelp}` : json.description;
+
+  return [{ form: args ? `/${json.name} ${args}` : `/${json.name}`, description }];
 }
 
 /** How an outcome reads at a glance. Maps to the brand palette, nothing more. */
@@ -463,6 +528,33 @@ export function describeStep(result: AgentResult, step: 'next' | 'previous'): Re
     text: `Could not skip to the ${word} thing.`,
     footnote: body.message ?? `Agent returned HTTP ${status}.`,
   };
+}
+
+/**
+ * `/help` — render one tenant's command surface as a readable listing (006).
+ *
+ * **A second view of the registered commands, never a second description of them.** Every
+ * line comes from {@link buildCommandGroups}, the same value registration is built from,
+ * so the listing cannot show a command the guild lacks, omit one it has, or describe any
+ * of them differently (FR-007, FR-008).
+ *
+ * Groups render in construction order and are never empty — a tenant without a kind of
+ * target produces no group for it, rather than a heading with nothing under it (FR-022).
+ *
+ * Contacts nothing. This is the only command that reads no state at all: it says what a
+ * member may *ask for*, never whether it would succeed, which is `/status`'s job
+ * (FR-014, FR-015). The same tenant renders the same listing whether every target is
+ * running or every one is switched off.
+ */
+export function describeCommandList(groups: readonly CommandGroup[]): Reply {
+  const sections = groups.map((group) => {
+    const entries = group.commands.flatMap(toCommandEntries);
+    const width = Math.max(...entries.map((e) => e.form.length));
+    const lines = entries.map((e) => `\`${e.form.padEnd(width)}\`  ${e.description}`);
+    return `**${group.label}**\n${lines.join('\n')}`;
+  });
+
+  return { tone: 'ok', text: sections.join('\n\n') };
 }
 
 /**

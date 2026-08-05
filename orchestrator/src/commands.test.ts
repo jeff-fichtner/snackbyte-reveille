@@ -15,6 +15,8 @@ import {
   routeToAgent,
   buildCommands,
   buildCommandGroups,
+  toCommandEntries,
+  describeCommandList,
   DEFAULT_SEEK_SECONDS,
 } from './commands.ts';
 import type { ControlledServer } from './config.ts';
@@ -345,6 +347,8 @@ test('the embed carries the text, and the footnote only when there is one', () =
 type CmdOption = {
   name: string;
   description?: string;
+  /** Discord's option-type tag; `1` is a subcommand. */
+  type?: number;
   required?: boolean;
   min_value?: number;
   max_value?: number;
@@ -359,7 +363,7 @@ test('buildCommands scopes a guild to ONLY its own targets (FR-003)', () => {
   const cmds = buildCommands(TENANT_A) as unknown as Cmd[];
   assert.deepEqual(
     cmds.map((c) => c.name).sort(),
-    ['address', 'back', 'forward', 'next', 'pause', 'play', 'previous', 'start', 'status', 'stop'],
+    ['address', 'back', 'forward', 'help', 'next', 'pause', 'play', 'previous', 'start', 'status', 'stop'],
   );
   // The acting game verbs name palworld and nothing else — no other tenant's game leaks in.
   for (const verb of ['start', 'stop', 'address']) {
@@ -372,7 +376,7 @@ test('buildCommands: a media-only tenant gets the media verbs + status, no game 
   const cmds = buildCommands([{ name: 'vlc', baseUrl: 'http://x', kind: 'media' }]) as unknown as Cmd[];
   assert.deepEqual(
     cmds.map((c) => c.name).sort(),
-    ['back', 'forward', 'next', 'pause', 'play', 'previous', 'status'],
+    ['back', 'forward', 'help', 'next', 'pause', 'play', 'previous', 'status'],
   );
 });
 
@@ -380,7 +384,7 @@ test('buildCommands: a game-only tenant gets start/stop/address/status, no pause
   const cmds = buildCommands([
     { name: 'palworld', baseUrl: 'http://x', kind: 'game', publicPort: 8211 },
   ]) as unknown as Cmd[];
-  assert.deepEqual(cmds.map((c) => c.name).sort(), ['address', 'start', 'status', 'stop']);
+  assert.deepEqual(cmds.map((c) => c.name).sort(), ['address', 'help', 'start', 'status', 'stop']);
 });
 
 // ── 005: the seek surface ────────────────────────────────────────────────────
@@ -581,10 +585,12 @@ test('buildCommands is exactly the flattened groups — registration decides not
   }
 });
 
-test('the refactor did not change what registers — same commands, same order, same options', () => {
-  // A regression fence around T001. Names, ORDER and option/subcommand names are asserted;
-  // description text deliberately is not, since asserting it here would be the very second
-  // copy this feature exists to remove.
+test('the registered surface is exactly this — commands, order, and options', () => {
+  // A regression fence: the T001 refactor must not have changed what registers, and
+  // nothing may be added to the surface without this test noticing. (`/help` itself is a
+  // deliberate addition by T003 and appears below.) Names, ORDER and option/subcommand
+  // names are asserted; description text deliberately is not, since asserting it here
+  // would be the very second copy this feature exists to remove.
   const gameAndMedia = (buildCommands(TENANT_A) as unknown as Cmd[]).map(shapeOf);
   assert.deepEqual(gameAndMedia, [
     'start(palworld)',
@@ -597,19 +603,20 @@ test('the refactor did not change what registers — same commands, same order, 
     'forward(seconds)',
     'back(seconds)',
     'status()',
+    'help()',
   ]);
 
   const mediaOnly = (buildCommands([
     { name: 'vlc', baseUrl: 'http://x', kind: 'media' },
   ]) as unknown as Cmd[]).map(shapeOf);
   assert.deepEqual(mediaOnly, [
-    'pause()', 'play()', 'next()', 'previous()', 'forward(seconds)', 'back(seconds)', 'status()',
+    'pause()', 'play()', 'next()', 'previous()', 'forward(seconds)', 'back(seconds)', 'status()', 'help()',
   ]);
 
   const gameOnly = (buildCommands([
     { name: 'palworld', baseUrl: 'http://x', kind: 'game', publicPort: 8211 },
   ]) as unknown as Cmd[]).map(shapeOf);
-  assert.deepEqual(gameOnly, ['start(palworld)', 'stop(palworld)', 'address(palworld)', 'status()']);
+  assert.deepEqual(gameOnly, ['start(palworld)', 'stop(palworld)', 'address(palworld)', 'status()', 'help()']);
 });
 
 test('a group is never constructed empty, so it can never render empty (FR-022)', () => {
@@ -629,6 +636,116 @@ test('a group is never constructed empty, so it can never render empty (FR-022)'
   assert.deepEqual(buildCommandGroups(TENANT_A).map((g) => g.label), ['Games', 'Media', 'Everything']);
 });
 
+// ── 006 / US1: the listing ───────────────────────────────────────────────────
+
+/**
+ * The registered runnable forms, derived independently of the listing — by expanding the
+ * REGISTRATION payload rather than the groups. Two derivations that must agree.
+ */
+function registeredForms(servers: ControlledServer[]): string[] {
+  return (buildCommands(servers) as unknown as Cmd[]).flatMap((c) => {
+    const opts = c.options ?? [];
+    const subs = opts.filter((o) => o.type === 1);
+    if (subs.length > 0) return subs.map((s) => `/${c.name} ${s.name}`);
+    const args = opts.map((o) => (o.required === true ? `<${o.name}>` : `[${o.name}]`)).join(' ');
+    return [args ? `/${c.name} ${args}` : `/${c.name}`];
+  });
+}
+
+const listedForms = (servers: ControlledServer[]) =>
+  buildCommandGroups(servers).flatMap((g) => g.commands.flatMap(toCommandEntries)).map((e) => e.form);
+
+test('THE BIJECTION: the listing and the registered surface agree exactly (FR-007, SC-002)', () => {
+  // The feature's correctness proof. Nothing listed that cannot be run, nothing runnable
+  // that is missing — asserted derived-to-derived, from two independent expansions.
+  //
+  // Note what is NOT here: any expected string. A fixture of description text would be a
+  // THIRD copy with exactly the drift problem the feature exists to remove, and it would
+  // pass on the day it was written (005's `vlc.ts` header did too).
+  for (const servers of [
+    TENANT_A,
+    [{ name: 'vlc', baseUrl: 'http://x', kind: 'media' }] as ControlledServer[],
+    [{ name: 'palworld', baseUrl: 'http://x', kind: 'game', publicPort: 8211 }] as ControlledServer[],
+    [
+      { name: 'palworld', baseUrl: 'http://x', kind: 'game', publicPort: 8211 },
+      { name: 'satisfactory', baseUrl: 'http://y', kind: 'game', publicPort: 7777 },
+      { name: 'vlc', baseUrl: 'http://z', kind: 'media' },
+    ] as ControlledServer[],
+  ]) {
+    assert.deepEqual(listedForms(servers), registeredForms(servers), 'listing must equal the registered surface');
+  }
+});
+
+test('every description is the REGISTERED one, never authored (FR-008, SC-003)', () => {
+  // Read the expected text out of the registration payload rather than a literal, so this
+  // test cannot itself become a stale copy. Change a registered description and the
+  // listing follows with no edit here.
+  const registered = new Map<string, string>();
+  for (const c of buildCommands(TENANT_A) as unknown as Cmd[]) {
+    const subs = (c.options ?? []).filter((o) => o.type === 1);
+    if (subs.length > 0) for (const s of subs) registered.set(`/${c.name} ${s.name}`, s.description ?? '');
+  }
+
+  for (const e of buildCommandGroups(TENANT_A).flatMap((g) => g.commands.flatMap(toCommandEntries))) {
+    const expected = registered.get(e.form);
+    if (expected !== undefined) assert.equal(e.description, expected, `${e.form} must quote its registered description`);
+  }
+});
+
+test('one entry per RUNNABLE form — /start yields one per game target, not one (FR-002)', () => {
+  const forms = listedForms([
+    { name: 'palworld', baseUrl: 'http://x', kind: 'game', publicPort: 8211 },
+    { name: 'satisfactory', baseUrl: 'http://y', kind: 'game', publicPort: 7777 },
+  ]);
+  assert.ok(forms.includes('/start palworld') && forms.includes('/start satisfactory'));
+  assert.ok(!forms.includes('/start'), '/start alone is not runnable and must not be listed');
+  // FR-012 falls out of this: the runnable form contains the target.
+  assert.equal(forms.filter((f) => f.startsWith('/start')).length, 2);
+});
+
+test('an optional argument shows as optional, with its default visible (FR-003)', () => {
+  const entries = buildCommandGroups([{ name: 'vlc', baseUrl: 'http://x', kind: 'media' }])
+    .flatMap((g) => g.commands.flatMap(toCommandEntries));
+  const forward = entries.find((e) => e.form.startsWith('/forward'));
+  assert.ok(forward, '/forward must be listed');
+  assert.equal(forward.form, '/forward [seconds]', 'brackets mean optional');
+  // The default is stated — and it comes from the registered option description, so this
+  // asserts the number rather than the sentence carrying it.
+  assert.match(forward.description, new RegExp(String(DEFAULT_SEEK_SECONDS)));
+});
+
+test('/help lists itself, and is offered to every tenant (FR-004)', () => {
+  for (const servers of [
+    TENANT_A,
+    [{ name: 'vlc', baseUrl: 'http://x', kind: 'media' }] as ControlledServer[],
+    [{ name: 'palworld', baseUrl: 'http://x', kind: 'game', publicPort: 8211 }] as ControlledServer[],
+  ]) {
+    assert.ok(listedForms(servers).includes('/help'), 'a list that omits itself is incomplete');
+  }
+});
+
+test('the listing contacts nothing and describes no content (FR-013, FR-015, SC-006, SC-007)', () => {
+  // Rendered with no AgentClient in existence at all — the listing says what may be ASKED
+  // for, never whether it would succeed. It is identical however the targets are behaving.
+  const reply = describeCommandList(buildCommandGroups(TENANT_A));
+  assert.ok(reply.text.trim().length > 0);
+  assert.doesNotMatch(
+    reply.text,
+    /\b(playlist|episode|file|track|title|chapter|duration|position)\b/i,
+    'the listing must never describe content',
+  );
+});
+
+test('nothing self-issues — no listing is produced unasked (FR-016)', () => {
+  const src = readFileSync(fileURLToPath(new URL('./commands.ts', import.meta.url)), 'utf8');
+  const idx = readFileSync(fileURLToPath(new URL('./index.ts', import.meta.url)), 'utf8');
+  for (const [file, text] of [['commands.ts', src], ['index.ts', idx]] as const) {
+    assert.doesNotMatch(text, /\bsetInterval\s*\(/, `${file} must not repeat on its own`);
+    assert.doesNotMatch(text, /\bsetTimeout\s*\(/, `${file} must not defer work to later`);
+  }
+  assert.equal((idx.match(/armFollowup\(/g) ?? []).length, 1, 'the one scheduler stays in the start path');
+});
+
 // ── 005 / US3: the new surface inherits 004's isolation ──────────────────────
 
 test('a media-LESS tenant is offered NONE of the four new controls (004 FR-003, SC-005)', () => {
@@ -643,7 +760,7 @@ test('a media-LESS tenant is offered NONE of the four new controls (004 FR-003, 
   for (const media of ['next', 'previous', 'forward', 'back', 'pause', 'play']) {
     assert.ok(!names.includes(media), `/${media} must not be offered without a media target`);
   }
-  assert.deepEqual(names.sort(), ['address', 'start', 'status', 'stop']);
+  assert.deepEqual(names.sort(), ['address', 'help', 'start', 'status', 'stop']);
 });
 
 test('the four new controls reach ONLY their own tenant’s media target (004 FR-002)', () => {
