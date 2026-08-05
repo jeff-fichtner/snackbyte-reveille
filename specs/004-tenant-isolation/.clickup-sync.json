@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "1",
+  "feature": "004-tenant-isolation",
+  "workspaceId": "90141363864",
+  "spaceId": "90146746995",
+  "listId": "901418532266",
+  "statusMapping": {
+    "open": "backlog",
+    "in-design": "in design",
+    "ready": "ready for development",
+    "in-development": "in development",
+    "in-review": "in review",
+    "done": "shipped"
+  },
+  "card": {
+    "id": "86bb8neyj",
+    "hash": "sha256:16e88211723b872dab5e4d8b0f0c883a59be7ce712cbe51269877b63750a3c9b"
+  },
+  "userStories": [
+    {
+      "us": "US1",
+      "id": "86bb8nf13",
+      "hash": "sha256:adea8db85fb04f6f40e11ee370ba814c2b6858dd9812674b790cecee229efa9d",
+      "dependsOn": []
+    },
+    {
+      "us": "US2",
+      "id": "86bb8nf2a",
+      "hash": "sha256:777a7a494600c856b655e42e94eec551126f956e07e23e01b1585871c7bf1869",
+      "dependsOn": [
+        "US1"
+      ]
+    }
+  ]
+}
