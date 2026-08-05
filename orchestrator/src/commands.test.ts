@@ -736,6 +736,78 @@ test('the listing contacts nothing and describes no content (FR-013, FR-015, SC-
   );
 });
 
+// ── 006 / US2: the listing is about MY guild ─────────────────────────────────
+
+test('the listing is scoped to the asking guild, with no empty headings (FR-010, SC-004)', () => {
+  const mediaOnly = buildCommandGroups([{ name: 'vlc', baseUrl: 'http://x', kind: 'media' }]);
+  const gameOnly = buildCommandGroups([
+    { name: 'palworld', baseUrl: 'http://x', kind: 'game', publicPort: 8211 },
+  ]);
+
+  // A guild with no games is never shown a game command, and never shown a "Games"
+  // heading with nothing beneath it — the group was never constructed (T001).
+  assert.deepEqual(mediaOnly.map((g) => g.label), ['Media', 'Everything']);
+  const mediaForms = mediaOnly.flatMap((g) => g.commands.flatMap(toCommandEntries)).map((e) => e.form);
+  for (const gameVerb of ['/start', '/stop', '/address']) {
+    assert.ok(!mediaForms.some((f) => f.startsWith(gameVerb)), `${gameVerb} must not be listed`);
+  }
+
+  assert.deepEqual(gameOnly.map((g) => g.label), ['Games', 'Everything']);
+  const gameForms = gameOnly.flatMap((g) => g.commands.flatMap(toCommandEntries)).map((e) => e.form);
+  for (const mediaVerb of ['/pause', '/play', '/next', '/previous', '/forward', '/back']) {
+    assert.ok(!gameForms.some((f) => f.startsWith(mediaVerb)), `${mediaVerb} must not be listed`);
+  }
+});
+
+test('one guild’s listing reveals nothing about another’s targets (FR-011, SC-005)', () => {
+  // Isolation is structural: the listing is built from the tenant's OWN server list, so
+  // another tenant's targets were never passed in and cannot appear.
+  const a = describeCommandList(buildCommandGroups([
+    { name: 'palworld', baseUrl: 'http://127.0.0.1:8300', kind: 'game', publicPort: 8211 },
+  ]));
+  const b = describeCommandList(buildCommandGroups([
+    { name: 'projector', baseUrl: 'http://127.0.0.1:8402', kind: 'media' },
+  ]));
+
+  assert.doesNotMatch(a.text, /projector|8402/, 'A must not learn of B’s target');
+  assert.doesNotMatch(b.text, /palworld|8300|8211/, 'B must not learn of A’s target');
+  // ...and each does name its own, because the runnable form contains it (FR-012).
+  assert.match(a.text, /palworld/);
+});
+
+// US2/AC4 (an unconfigured guild is ignored) needs no test of its own: the tenant is
+// resolved in `interactionCreate` BEFORE `handle()` is called, so an unconfigured guild
+// never reaches any command — `/help` included, wherever it sits inside `handle`. That is
+// 004 FR-006, inherited rather than re-implemented. It is recorded here because the
+// guarantee depends on that ordering surviving future edits.
+
+// ── 006 / US3: the listing cannot go stale ───────────────────────────────────
+
+test('adding or removing a target changes the listing, with no text edited (FR-009, SC-003)', () => {
+  const withoutMedia: ControlledServer[] = [
+    { name: 'palworld', baseUrl: 'http://x', kind: 'game', publicPort: 8211 },
+  ];
+  const withMedia: ControlledServer[] = [...withoutMedia, { name: 'vlc', baseUrl: 'http://y', kind: 'media' }];
+
+  const before = listedForms(withoutMedia);
+  const after = listedForms(withMedia);
+
+  // The media commands appear purely because configuration changed — nothing in this
+  // file, and no description anywhere, was edited to make it happen.
+  assert.ok(!before.includes('/pause'));
+  assert.ok(after.includes('/pause') && after.includes('/forward [seconds]'));
+  // ...and removing the target takes them away again.
+  assert.deepEqual(listedForms(withoutMedia), before);
+
+  // A second game target adds its own runnable forms, without adding a command.
+  const twoGames = listedForms([
+    ...withoutMedia,
+    { name: 'satisfactory', baseUrl: 'http://z', kind: 'game', publicPort: 7777 },
+  ]);
+  assert.ok(twoGames.includes('/start satisfactory'));
+  assert.equal(twoGames.filter((f) => f.startsWith('/start')).length, 2);
+});
+
 test('nothing self-issues — no listing is produced unasked (FR-016)', () => {
   const src = readFileSync(fileURLToPath(new URL('./commands.ts', import.meta.url)), 'utf8');
   const idx = readFileSync(fileURLToPath(new URL('./index.ts', import.meta.url)), 'utf8');

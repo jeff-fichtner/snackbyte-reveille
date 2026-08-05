@@ -68,7 +68,7 @@ question; this is none). An empty phase is not written just to have one.
 
 **Independent Test**: Build the listing for a media-only tenant and a game-only tenant; confirm each contains exactly its own commands and names no other tenant's target.
 
-- [ ] T008 [P] [US2] Scoping tests in `orchestrator/src/commands.test.ts` — a **media-less** tenant's listing contains **0** media commands and **no empty "Games"/"Media" heading**; a **game-less** tenant's contains **0** game commands; two tenants with different targets produce listings that name **none** of the other's targets (FR-010, FR-011, SC-004, SC-005). Extend the existing 004/005 scoping tests rather than adding a parallel set. Assert the listing is built from a tenant-scoped server list, never a global one. Also record why **US2/AC4 needs no separate work**: tenant resolution happens in `interactionCreate` *before* `handle()` is called, so `/help` is unreachable from an unconfigured guild wherever it sits inside `handle` — inherited from 004 FR-006, not re-implemented. Worth asserting if it is cheap, because the guarantee depends on that ordering surviving future edits.
+- [X] T008 [P] [US2] Scoping tests in `orchestrator/src/commands.test.ts` — a **media-less** tenant's listing contains **0** media commands and **no empty "Games"/"Media" heading**; a **game-less** tenant's contains **0** game commands; two tenants with different targets produce listings that name **none** of the other's targets (FR-010, FR-011, SC-004, SC-005). Extend the existing 004/005 scoping tests rather than adding a parallel set. Assert the listing is built from a tenant-scoped server list, never a global one. Also record why **US2/AC4 needs no separate work**: tenant resolution happens in `interactionCreate` *before* `handle()` is called, so `/help` is unreachable from an unconfigured guild wherever it sits inside `handle` — inherited from 004 FR-006, not re-implemented. Worth asserting if it is cheap, because the guarantee depends on that ordering surviving future edits.
 
 **Checkpoint**: The listing inherits 004's isolation, proven rather than assumed.
 
@@ -80,7 +80,7 @@ question; this is none). An empty phase is not written just to have one.
 
 **Independent Test**: Add a target to a tenant fixture and confirm its commands appear in the listing; change a registered description and confirm the listing follows — both with no listing-side edit.
 
-- [ ] T009 [P] [US3] Drift-resistance tests in `orchestrator/src/commands.test.ts` — adding a target to a tenant makes its commands appear in the listing and removing it makes them disappear, **with no description text edited anywhere** (FR-009, SC-003); and a description taken from the registered command is the one the listing shows, asserted by reading it from `buildCommands` rather than from a literal. This is the test that would have caught 005's stale `vlc.ts` header.
+- [X] T009 [P] [US3] Drift-resistance tests in `orchestrator/src/commands.test.ts` — adding a target to a tenant makes its commands appear in the listing and removing it makes them disappear, **with no description text edited anywhere** (FR-009, SC-003); and a description taken from the registered command is the one the listing shows, asserted by reading it from `buildCommands` rather than from a literal. This is the test that would have caught 005's stale `vlc.ts` header.
 
 **Checkpoint**: Drift is structurally impossible, and a test says so.
 
