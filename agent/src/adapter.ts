@@ -35,6 +35,13 @@ export interface MediaAdapter {
   pause(): Promise<void>;
   /** Force-resume from where it paused. A no-op if already playing. */
   resume(): Promise<void>;
+  /**
+   * Move the position **relative to now** by `seconds` — positive forward, negative
+   * back (005). Deliberately **unbounded**: never clamped, capped, or range-checked
+   * (FR-005). The caller has already rejected a non-integer amount, and the direction
+   * lives in the sign, not in the verb, which is why there is one method and not two.
+   */
+  seek(seconds: number): Promise<void>;
 }
 
 /** Either kind of adapter. The `kind` tag is how the server picks the verb set. */

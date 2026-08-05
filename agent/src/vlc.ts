@@ -33,6 +33,15 @@ const STATUS_PATH = '/requests/status.json';
 const PAUSE_COMMAND = 'pl_forcepause';
 const RESUME_COMMAND = 'pl_forceresume';
 
+/**
+ * Relative seek (005). **The sign prefix is what makes it relative** — measured, not
+ * assumed (`m0-vlc-controls.md` §3): `val=%2B30` moves forward 30s and `val=-30` moves
+ * back 30s, but a bare `val=30` is an **absolute** seek to 0:30. Sending the unsigned
+ * form for "forward 30 seconds" would jump the show to the 30-second mark and look
+ * plausible while doing it, which is why `vlc.test.ts` bans the unsigned form outright.
+ */
+const SEEK_COMMAND = 'seek';
+
 /** How long to wait on the loopback web interface before treating it as unreachable. */
 const PROBE_TIMEOUT_MS = 2_000;
 
@@ -94,6 +103,28 @@ export async function resume(config: VlcConfig): Promise<void> {
 }
 
 /**
+ * Move the position relative to now. `seconds` is signed — positive forward, negative
+ * back — and is passed through **exactly as given**: no clamping, no capping, no range
+ * check, and no conversion to a magnitude (FR-005). VLC honours absurd values literally
+ * (M0 §5 measured `+99999` landing at t=100119 on a 240s item, and a negative time being
+ * accepted and reported), and correcting for that would be precisely the outcome-checking
+ * FR-003 forbids.
+ *
+ * A positive amount is percent-encoded (`%2B`) rather than sent as a raw `+`. VLC happened
+ * to tolerate the raw form (M0 §4), but a `+` in a query string is form-encoded whitespace
+ * by spec — the one character that decides relative-vs-absolute must not rest on a parser's
+ * leniency.
+ *
+ * The server has already rejected a missing or non-integer amount with a 400, which matters
+ * more than it looks: M0 §6 measured `val=abc` parsing as 0 and applying as an absolute seek
+ * to the START. A silent default here would be destructive, not merely wrong.
+ */
+export async function seek(config: VlcConfig, seconds: number): Promise<void> {
+  const signed = seconds < 0 ? String(seconds) : `%2B${seconds}`;
+  await vlcFetch(config, `${SEEK_COMMAND}&val=${signed}`);
+}
+
+/**
  * Bind the functions above to a config, presenting the target-agnostic
  * `MediaAdapter` the rest of the agent speaks (adapter.ts). No behaviour of its
  * own — it only closes over `config` so nothing upstream has to thread it, and
@@ -105,5 +136,6 @@ export function createVlcAdapter(config: VlcConfig): MediaAdapter {
     getState: () => getState(config),
     pause: () => pause(config),
     resume: () => resume(config),
+    seek: (seconds: number) => seek(config, seconds),
   };
 }

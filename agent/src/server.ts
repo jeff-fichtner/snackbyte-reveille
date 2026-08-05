@@ -135,6 +135,55 @@ async function handleResume(adapter: MediaAdapter): Promise<Outcome> {
   return { status: 200, body: { state: 'playing' } };
 }
 
+/**
+ * POST /seek?seconds=<signed integer> — move the position relative to now (005).
+ *
+ * `seconds` is **required and has no default here**. The 30-second default belongs to the
+ * Discord surface, where a *member* may omit the argument; by the time a request reaches
+ * the seam the amount is always explicit, so an absent or malformed one is a caller bug
+ * and gets a 400 naming it. That is not pedantry: M0 §6 measured VLC parsing a non-numeric
+ * `val` as 0 and applying it as an ABSOLUTE seek to the start, so quietly substituting a
+ * default here would be destructive rather than merely wrong.
+ *
+ * The amount itself is otherwise unvalidated — no clamping, no range check (FR-005).
+ */
+async function handleSeek(adapter: MediaAdapter, req: IncomingMessage): Promise<Outcome> {
+  const raw = new URL(req.url ?? '', 'http://agent.invalid').searchParams.get('seconds');
+  if (raw === null || raw.trim() === '') {
+    return {
+      status: 400,
+      body: { state: 'error', message: 'Missing required query parameter `seconds`.' },
+    };
+  }
+  // Integer-only, sign allowed. `Number` alone would accept `1e3`, ` 12 `, and `0x1f`.
+  if (!/^-?\d+$/.test(raw.trim())) {
+    return {
+      status: 400,
+      body: {
+        state: 'error',
+        message: `Query parameter \`seconds\` must be an integer, got ${JSON.stringify(raw)}.`,
+      },
+    };
+  }
+  const seconds = Number(raw.trim());
+
+  const state = await adapter.getState();
+  // M0 §9: every media command no-ops SILENTLY with nothing loaded, and still answers
+  // 200. Forwarding blind would report success for an action that did not happen.
+  if (state === 'stopped') {
+    return { status: 409, body: { state, message: 'Nothing is playing.' } };
+  }
+  try {
+    await adapter.seek(seconds);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { status: 500, body: { state: 'error', message } };
+  }
+  // 200 means ISSUED, never achieved: the position is not read back (FR-003), and M0 §5
+  // showed VLC accepts absurd positions literally. `state` is what it was, not a claim.
+  return { status: 200, body: { state } };
+}
+
 /** GET /status — the target's state, read-only. Changes nothing (FR-022, SC-005). */
 async function handleStatus(adapter: Adapter): Promise<Outcome> {
   const state = await adapter.getState();
@@ -165,6 +214,8 @@ async function route(req: IncomingMessage, adapter: Adapter): Promise<Outcome> {
       return await handlePause(adapter);
     case '/play':
       return await handleResume(adapter);
+    case '/seek':
+      return await handleSeek(adapter, req);
     default:
       return { status: 404, body: { state: 'error', message: `No such endpoint: ${path}` } };
   }
