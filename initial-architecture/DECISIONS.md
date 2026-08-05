@@ -693,3 +693,32 @@ and no firewall rule to write, in contrast to the games' `0.0.0.0`-binding admin
 orchestrator → media agent → VLC. A blank `VLC_PASSWORD` makes VLC 401 every request,
 so the agent fails loud at boot rather than discovering it later. A second player, if
 ever wanted, is a second media agent and a second `AGENTS` entry — not new code.
+
+---
+
+## 020 · The public homepage is a spec deliverable (Constitution v1.2.0)
+**Date:** 2026-08-04 · **Status:** accepted
+**Closes:** when the landing page gets updated — and whose job it is
+
+**Context.** `site/` is the public face of Reveille and states what it does. Through
+001/002 the homepage was updated *after* the feature shipped, as a separate pass
+(002's update was its own late commit). That leaves a window where a shipped feature
+and its public description disagree, and it makes the update easy to forget entirely.
+
+**Decision.** Amend the Constitution's Development Workflow (MINOR, → v1.2.0): when a
+spec changes user-facing behaviour, updating the homepage in `site/` is a **task in
+that spec's `tasks.md`**, planned during `/speckit-plan`/`/speckit-tasks` and done
+during `/speckit-implement` alongside the code — not retrofitted after close. A spec
+that ships with the homepage still describing the old behaviour is not finished.
+
+**Why it won.** Making it a planned task means the plan/analyze/verify machinery
+already covers it — an unmet homepage task is a visible gap, not a thing to remember.
+Chosen over a post-close checklist item (easy to skip, and it reopens a "done"
+feature) and over leaving it ad hoc (which is what let the gap exist). Workflow rule,
+not architecture — but the Constitution's governance requires a `DECISIONS` entry for
+any amendment, so this is it.
+
+**Consequences.** Future specs whose behaviour is user-visible carry a `site/` task
+from `/speckit-tasks` onward. This entry is retroactive for 003 — its homepage update
+was done at ship time, and the rule is written so 004 onward plans it in from the
+start.

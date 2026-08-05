@@ -1,5 +1,12 @@
 <!--
 SYNC IMPACT REPORT
+Version change: 1.1.0 → 1.2.0
+Rationale (1.2.0, 2026-08-04): MINOR — new standing guidance, no principle changed.
+Development Workflow now requires the public homepage (site/) to be a planned task
+in a spec's tasks.md when that spec changes user-facing behaviour, done during
+/speckit-implement rather than retrofitted after close. Recorded in DECISIONS 020.
+Amended section: Development Workflow. No template changes required.
+
 Version change: 1.0.0 → 1.1.0
 Rationale (1.1.0, 2026-08-04): MINOR amendment — materially widened scope, no
 principle removed or redefined. The opening line and Principle II broaden "game
@@ -154,6 +161,14 @@ Features follow the Spec Kit flow: `/speckit-specify` → `/speckit-plan` →
 the `clickup` extension; the repository remains the source of truth and the sync
 is one-way.
 
+**The public homepage is a spec deliverable, not an afterthought.** When a spec
+changes what the system does for a user — a new command, a new target, a changed
+guarantee — updating the landing page in [`site/`](../../site/) MUST be a task in
+that spec's `tasks.md`, planned during `/speckit-plan`/`/speckit-tasks` and done
+during `/speckit-implement` alongside the code. The page is public and states what
+Reveille is and does; a spec that ships while the homepage still describes the old
+behaviour is not finished.
+
 **The acceptance test every change is measured against:**
 
 > If adding a capability requires a new *kind* of thing rather than a new *row*,
@@ -181,4 +196,4 @@ generated. Violations MUST be justified explicitly in the plan's Complexity
 Tracking section or the approach MUST be simplified. An unjustifiable violation
 of Principle I or II is not a complexity trade-off — it is a defect.
 
-**Version**: 1.1.0 | **Ratified**: 2026-07-20 | **Last Amended**: 2026-08-04
+**Version**: 1.2.0 | **Ratified**: 2026-07-20 | **Last Amended**: 2026-08-04
