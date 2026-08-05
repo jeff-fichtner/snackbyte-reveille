@@ -110,8 +110,8 @@ the regression that the games are unchanged.
 - [X] T018 Record `DECISIONS.md` entries (Constitution V) — the scope-widening (game servers → controllable targets), media as a **second adapter kind** with its own verbs, the additive **seam v3** (media verbs + `MediaState`), and **VLC-over-its-HTTP-interface** (loopback, plain HTTP, `fetch`, zero deps). Written before the widening is treated as settled elsewhere
 - [X] T019 [P] Update `CLAUDE.md` — the media target, the `MediaAdapter` boundary and adapter-by-config across kinds, the `/pause` `/play` verbs, the folded `/status`, VLC's one-time web-interface setup, and that media adds **no exposure**
 - [X] T020 [P] Extend `scripts/reveille.ps1` — add the media agent to the control-plane start/stop/status set (its own env file, loopback port), so one command still brings the whole plane up
-- [ ] T021 Run the full [quickstart.md](quickstart.md) §5 — the **SC-007 regression**: every 001/002 behaviour (start/stop/status/address, all refusals, save-durability) is unchanged by adding media, and the game agents never answer the media verbs
-- [ ] T022 Run [quickstart.md](quickstart.md) §4 — the **no-exposure check** (SC-004): from outside the network, confirm media control opened no new port (the web interface and the media agent are loopback-only)
+- [X] T021 Run the full [quickstart.md](quickstart.md) §5 — the **SC-007 regression**: every 001/002 behaviour (start/stop/status/address, all refusals, save-durability) is unchanged by adding media, and the game agents never answer the media verbs
+- [X] T022 Run [quickstart.md](quickstart.md) §4 — the **no-exposure check** (SC-004): from outside the network, confirm media control opened no new port (the web interface and the media agent are loopback-only)
 
 ---
 

@@ -14,26 +14,29 @@
   },
   "card": {
     "id": "86bb7za0g",
-    "hash": "sha256:f7c1ca253d627775472f31960d47489efc9c0970c9856429224c0150006e4682"
+    "hash": "sha256:819cf5cf80fecfa90a0d922165cf2bb5fc30fccfe0739639524b0f3a9af4ce33",
+    "provenanceHash": "sha256:f0fe2c2d996bbbbedaf56a6f2d467806c9b00625ecf0ededf174695612de826b"
   },
   "userStories": [
     {
+      "us": "US1",
+      "id": "86bb7za1m",
+      "hash": "sha256:e19d8306f489623d870f90147d78dbf7f042109d7ec850e6ced639458dc6bdcb",
+      "dependsOn": []
+    },
+    {
       "us": "US2",
       "id": "86bb7za1v",
-      "hash": "sha256:95acd6abefc7a1845b7a6cf72c5efe909237b0516bac47d990a59c93035a206c",
+      "hash": "sha256:fa96a12baeb1e0cf1bf916c0f7237da07c9d1dfd11052440e6ce8479665f92b9",
       "dependsOn": [
         "US1"
       ]
-    },
-    {
-      "us": "US1",
-      "id": "86bb7za1m",
-      "hash": "sha256:32fcbd80a0e1d015a9252100955847f12ff8d744f82888276bdeea5af7bd41eb",
-      "dependsOn": []
     }
   ],
   "lifecycle": {
     "analyzed": true,
-    "implementStarted": true
+    "implementStarted": true,
+    "verifyPassed": true,
+    "closedOut": true
   }
 }
