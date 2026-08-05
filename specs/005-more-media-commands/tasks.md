@@ -132,10 +132,24 @@ headless instances on their own ports; the operator's player was never touched):
 | §8 contract untouched | ✅ `contract/src/index.ts` unchanged |
 | §9 homepage | ✅ describes the four controls; scanned for and free of any capability the system lacks |
 
-**Left for a human** — irreducible, needs a live Discord guild and eyes on a player:
+**§6 scoping — now verified programmatically** against the **live Discord API**, with the
+real `TENANTS` config and the bot registered. `GET /applications/{app}/guilds/{guild}/commands`
+returns:
 
-- §3/§4 issuing the commands **from Discord** and watching the show move.
-- §6 opening the **command picker in two guilds** to confirm scoping visually.
+| Guild | Registered |
+|---|---|
+| `snackbyte dev` (2 games + vlc) | **10** — `/back` `/forward` `/next` `/previous` `/pause` `/play` `/status` + `/start` `/stop` `/address` (each with `palworld`/`satisfactory` subcommands) |
+| `playboy lounge` (vlc only) | **7** — the six media commands + `/status`, and **zero** game verbs |
+
+That is SC-005 confirmed on the real surface rather than in a unit test: a media-only tenant is
+offered no game verb, and each guild sees only its own targets. The `seconds` option comes back
+carrying **neither `min_value` nor `max_value`**, so FR-005 holds at the Discord API level too.
+
+**Left for a human** — genuinely irreducible, needs eyes on a player:
+
+- §3/§4 issuing the commands **from Discord** and watching the show actually move. The system
+  is forbidden from reporting position (FR-002), so confirming it *is* a human job by
+  construction.
 - §7 judging **reply wording** for content leakage in context.
 
 One thing to know when running §5 from Discord: `/play`'s refusal reads *"Nothing is
