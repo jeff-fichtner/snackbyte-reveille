@@ -55,6 +55,17 @@ export class AgentClient {
     return this.#request('POST', '/play');
   }
 
+  /**
+   * Move the position relative to now (005, media agents only). `seconds` is **signed** —
+   * positive forward, negative back — and is the first data ever to cross the seam in a
+   * request. It is a parameter of the *operation*, never a name for *which target*
+   * (Constitution I, DECISIONS 023). An integer needs no escaping: `-` and digits are
+   * already query-safe, and the agent rejects anything that is not an integer.
+   */
+  seek(seconds: number): Promise<AgentResult> {
+    return this.#request('POST', `/seek?seconds=${seconds}`);
+  }
+
   /** Read-only state, for `/status` and the US3 follow-up. Never mutates. */
   status(): Promise<AgentResult> {
     return this.#request('GET', '/status');

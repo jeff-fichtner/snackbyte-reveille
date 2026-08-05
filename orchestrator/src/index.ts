@@ -29,6 +29,8 @@ import {
   handleStatus,
   handlePause,
   handleResume,
+  handleSeek,
+  DEFAULT_SEEK_SECONDS,
 } from './commands.ts';
 import { armFollowup, shouldFollowUp } from './followup.ts';
 
@@ -132,6 +134,22 @@ async function handle(interaction: ChatInputCommandInteraction, rt: TenantRuntim
       return interaction.commandName === 'pause'
         ? await handlePause(interaction, rt.agents, rt.mediaTarget.name)
         : await handleResume(interaction, rt.agents, rt.mediaTarget.name);
+    }
+
+    // `/forward [seconds]` and `/back [seconds]` (005) — bare like pause/play, inside the
+    // same resolved-tenant path, so isolation is inherited structurally rather than
+    // re-implemented (004 FR-002/FR-003).
+    if (interaction.commandName === 'forward' || interaction.commandName === 'back') {
+      if (rt.mediaTarget === undefined) {
+        await interaction.editReply('No media player is configured for this server.');
+        return;
+      }
+      // The ONLY place the 30s default is applied. The amount is then passed through
+      // exactly as given — no clamping, no magnitude conversion (FR-005): `/back` simply
+      // negates, so `/back -30` sends +30 and seeks forward, as specified.
+      const requested = interaction.options.getInteger('seconds') ?? DEFAULT_SEEK_SECONDS;
+      const seconds = interaction.commandName === 'back' ? -requested : requested;
+      return await handleSeek(interaction, rt.agents, rt.mediaTarget.name, seconds);
     }
 
     // The acting game verbs each name their server as the subcommand (FR-018/019);

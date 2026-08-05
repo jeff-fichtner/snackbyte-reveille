@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import {
   describeStart,
   describeStop,
@@ -7,9 +9,11 @@ import {
   describeStatus,
   describePause,
   describeResume,
+  describeSeek,
   toEmbed,
   routeToAgent,
   buildCommands,
+  DEFAULT_SEEK_SECONDS,
 } from './commands.ts';
 import type { ControlledServer } from './config.ts';
 import { AgentClient, type AgentResult } from './agent-client.ts';
@@ -336,7 +340,14 @@ test('the embed carries the text, and the footnote only when there is one', () =
 });
 
 // ── 004: per-tenant scoped registration + isolation ──────────────────────────
-type Cmd = { name: string; options?: { name: string }[] };
+type CmdOption = {
+  name: string;
+  description?: string;
+  required?: boolean;
+  min_value?: number;
+  max_value?: number;
+};
+type Cmd = { name: string; description?: string; options?: CmdOption[] };
 const TENANT_A: ControlledServer[] = [
   { name: 'palworld', baseUrl: 'http://127.0.0.1:8300', kind: 'game', publicPort: 8211 },
   { name: 'vlc', baseUrl: 'http://127.0.0.1:8302', kind: 'media' },
@@ -344,7 +355,10 @@ const TENANT_A: ControlledServer[] = [
 
 test('buildCommands scopes a guild to ONLY its own targets (FR-003)', () => {
   const cmds = buildCommands(TENANT_A) as unknown as Cmd[];
-  assert.deepEqual(cmds.map((c) => c.name).sort(), ['address', 'pause', 'play', 'start', 'status', 'stop']);
+  assert.deepEqual(
+    cmds.map((c) => c.name).sort(),
+    ['address', 'back', 'forward', 'pause', 'play', 'start', 'status', 'stop'],
+  );
   // The acting game verbs name palworld and nothing else — no other tenant's game leaks in.
   for (const verb of ['start', 'stop', 'address']) {
     const subs = (cmds.find((c) => c.name === verb)?.options ?? []).map((o) => o.name);
@@ -352,9 +366,9 @@ test('buildCommands scopes a guild to ONLY its own targets (FR-003)', () => {
   }
 });
 
-test('buildCommands: a media-only tenant gets pause/play/status, no game verbs', () => {
+test('buildCommands: a media-only tenant gets the media verbs + status, no game verbs', () => {
   const cmds = buildCommands([{ name: 'vlc', baseUrl: 'http://x', kind: 'media' }]) as unknown as Cmd[];
-  assert.deepEqual(cmds.map((c) => c.name).sort(), ['pause', 'play', 'status']);
+  assert.deepEqual(cmds.map((c) => c.name).sort(), ['back', 'forward', 'pause', 'play', 'status']);
 });
 
 test('buildCommands: a game-only tenant gets start/stop/address/status, no pause/play', () => {
@@ -362,6 +376,132 @@ test('buildCommands: a game-only tenant gets start/stop/address/status, no pause
     { name: 'palworld', baseUrl: 'http://x', kind: 'game', publicPort: 8211 },
   ]) as unknown as Cmd[];
   assert.deepEqual(cmds.map((c) => c.name).sort(), ['address', 'start', 'status', 'stop']);
+});
+
+// ── 005: the seek surface ────────────────────────────────────────────────────
+
+test('/forward and /back are bare, take ONE optional amount, and are NOT bounded (FR-005, SC-004)', () => {
+  const cmds = buildCommands([{ name: 'vlc', baseUrl: 'http://x', kind: 'media' }]) as unknown as Cmd[];
+
+  for (const name of ['forward', 'back']) {
+    const cmd = cmds.find((c) => c.name === name);
+    assert.ok(cmd, `/${name} must be registered for a tenant with a media target`);
+    const opts = cmd.options ?? [];
+    assert.equal(opts.length, 1, `/${name} must carry exactly one option (FR-001)`);
+    assert.equal(opts[0]?.name, 'seconds');
+    assert.notEqual(opts[0]?.required, true, 'the amount must be OPTIONAL — the common case is bare');
+
+    // The whole point of SC-004. discord.js offers setMinValue/setMaxValue and reaching
+    // for them is the obvious instinct; FR-005 forbids bounding the amount. If a future
+    // edit "fixes" this by adding a range, this is the assertion that stops it.
+    assert.equal(opts[0]?.min_value, undefined, `/${name} must not clamp the amount (FR-005)`);
+    assert.equal(opts[0]?.max_value, undefined, `/${name} must not cap the amount (FR-005)`);
+  }
+});
+
+test('the 30s default exists in exactly one place, and /back negates it', () => {
+  assert.equal(DEFAULT_SEEK_SECONDS, 30, 'FR-004 fixes the default at 30');
+
+  // The routing arithmetic index.ts performs, asserted directly: `/back` negates whatever
+  // it is given, so the sign carries the direction and no branch decides it downstream.
+  const sent = (command: 'forward' | 'back', given?: number) => {
+    const requested = given ?? DEFAULT_SEEK_SECONDS;
+    return command === 'back' ? -requested : requested;
+  };
+  assert.equal(sent('forward'), 30, 'a bare /forward sends +30');
+  assert.equal(sent('back'), -30, 'a bare /back sends -30');
+  assert.equal(sent('forward', 90), 90);
+  assert.equal(sent('back', 90), -90);
+  // Pass-through, not magnitude: a negative amount flips the direction, as specified.
+  assert.equal(sent('back', -30), 30, '/back -30 sends +30 and therefore seeks FORWARD');
+  assert.equal(sent('forward', -30), -30);
+});
+
+test('a seek reply states what was ISSUED and claims no outcome (FR-003)', () => {
+  const forward = describeSeek(reached(200, { state: 'playing' }), 30);
+  const back = describeSeek(reached(200, { state: 'playing' }), -30);
+
+  assert.equal(forward.tone, 'ok');
+  assert.match(forward.text, /forward/i);
+  assert.match(forward.text, /30/);
+  assert.match(back.text, /back/i);
+
+  // Nothing may assert an achieved position or a resulting state. M0 §5/§6/§7 proved the
+  // orchestrator cannot know any of it — VLC accepts absurd positions, answers 200 for
+  // commands it does not recognise, and resumes a paused player on a step.
+  for (const r of [forward, back]) {
+    assert.doesNotMatch(said(r), /\b(now at|landed|jumped to|position is|currently)\b/i);
+  }
+});
+
+test('/back with a NEGATIVE amount reads as forward — the pass-through consequence, surfaced', () => {
+  // index.ts negates, so `/back -30` arrives here as +30. The reply must say "forward"
+  // rather than hide the surprise behind the command's name (Assumptions, Clarifications).
+  const reply = describeSeek(reached(200, { state: 'playing' }), 30);
+  assert.match(reply.text, /forward/i);
+  assert.doesNotMatch(reply.text, /back/i);
+});
+
+test('a seek refusal reads in the SAME terms as pause’s (SC-003)', () => {
+  const seek = describeSeek(reached(409, { state: 'stopped' }), 30);
+  const pause = describePause(reached(409, { state: 'stopped' }));
+  assert.equal(seek.tone, pause.tone, 'both must read as refusals, not failures');
+  assert.match(seek.text, /nothing is playing/i);
+  assert.match(pause.text, /nothing is playing/i);
+});
+
+test('an unreachable player reads as unreachable, never as a playback state (FR-009)', () => {
+  const reply = describeSeek({ reached: false, reason: 'ECONNREFUSED' }, 30);
+  assert.equal(reply.tone, 'failed');
+  assert.match(reply.text, /could not reach the host/i);
+  assert.doesNotMatch(reply.text, /playing|paused|stopped|jump/i);
+});
+
+test('every seek branch produces a non-empty reply, and none names content (SC-002, SC-004)', () => {
+  const branches = [
+    describeSeek(reached(200, { state: 'playing' }), 30),
+    describeSeek(reached(200, { state: 'paused' }), -30),
+    describeSeek(reached(409, { state: 'stopped' }), 30),
+    describeSeek(reached(400, { state: 'error', message: 'bad seconds' }), 30),
+    describeSeek(reached(500, { state: 'error', message: 'player unreachable' }), 30),
+    describeSeek({ reached: false, reason: 'ECONNREFUSED' }, 30),
+  ];
+  for (const r of branches) {
+    assert.ok(r.text.trim().length > 0, 'no command may leave a player guessing');
+    // No item, file, playlist, index, title, or duration may appear anywhere (FR-002).
+    assert.doesNotMatch(said(r), /\b(playlist|episode|file|track|title|item \d|chapter|duration)\b/i);
+  }
+
+  // Command DESCRIPTIONS are user-facing text too, and are the easy thing to forget.
+  const cmds = buildCommands([{ name: 'vlc', baseUrl: 'http://x', kind: 'media' }]) as unknown as Cmd[];
+  for (const c of cmds) {
+    const texts = [c.description ?? '', ...(c.options ?? []).map((o) => o.description ?? '')];
+    for (const t of texts) {
+      assert.doesNotMatch(t, /\b(playlist|episode|file|track|title|chapter)\b/i, `"${t}" names content`);
+    }
+  }
+});
+
+test('nothing self-issues — no media path schedules a command (FR-008)', () => {
+  // Every control is a direct human command: no timers, no automatic advance, no
+  // presence tracking. `AbortSignal.timeout` (a request deadline) is not a scheduler and
+  // is deliberately not matched here.
+  const commandsSrc = readFileSync(fileURLToPath(new URL('./commands.ts', import.meta.url)), 'utf8');
+  const indexSrc = readFileSync(fileURLToPath(new URL('./index.ts', import.meta.url)), 'utf8');
+
+  for (const [file, src] of [['commands.ts', commandsSrc], ['index.ts', indexSrc]] as const) {
+    assert.doesNotMatch(src, /\bsetInterval\s*\(/, `${file} must not poll or repeat on its own`);
+    assert.doesNotMatch(src, /\bsetTimeout\s*\(/, `${file} must not defer a command to later`);
+    assert.doesNotMatch(src, /\bcron|\bschedule\(/i, `${file} must not schedule anything`);
+  }
+
+  // The ONE deliberate scheduler in the system is the US3 start follow-up. It must remain
+  // reachable only from `/start` — a media command must never arm it.
+  assert.equal(
+    (indexSrc.match(/armFollowup\(/g) ?? []).length,
+    1,
+    'armFollowup must be called from exactly one place (the game start path)',
+  );
 });
 
 test('isolation: another tenant’s target is UNKNOWN to this tenant, never routed (FR-002)', () => {

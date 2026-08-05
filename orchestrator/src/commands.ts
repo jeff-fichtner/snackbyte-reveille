@@ -14,6 +14,16 @@ import type { AgentClient, AgentResult } from './agent-client.ts';
 import type { ControlledServer } from './config.ts';
 
 /**
+ * How far `/forward` and `/back` move when the member gives no amount (FR-004).
+ *
+ * **This is the only place the default exists.** It is a product decision, not
+ * configuration — the agent has no default at all and rejects a missing `seconds` with a
+ * 400, because a member omitting an argument is a documented choice while the orchestrator
+ * omitting the parameter would be a bug (DECISIONS 023).
+ */
+export const DEFAULT_SEEK_SECONDS = 30;
+
+/**
  * Build ONE tenant's slash-command set from ITS targets (004 — scoped per guild). A
  * guild registers, and therefore only ever sees, its own targets (FR-003): a target it
  * does not own cannot even be picked. Game verbs get a subcommand per game target;
@@ -51,6 +61,27 @@ export function buildCommands(servers: readonly ControlledServer[]) {
   if (media) {
     cmds.push(new SlashCommandBuilder().setName('pause').setDescription('Pause the show.'));
     cmds.push(new SlashCommandBuilder().setName('play').setDescription('Resume the show.'));
+
+    // The two seek commands, bare like pause/play, each with ONE optional amount so the
+    // common case is argument-free (FR-001). Built in two steps rather than chained:
+    // `addIntegerOption` narrows the builder's type, and `cmds` holds SlashCommandBuilder.
+    //
+    // NO `setMinValue`/`setMaxValue`, deliberately. FR-005 forbids bounding the amount, and
+    // reaching for those two methods is the obvious instinct — which is exactly why
+    // `commands.test.ts` asserts their absence. A description must not name content either
+    // (FR-002): these say what they do, never what is playing.
+    for (const [name, verb] of [['forward', 'forward'], ['back', 'back']] as const) {
+      const cmd = new SlashCommandBuilder()
+        .setName(name)
+        .setDescription(`Jump ${verb} in the show.`);
+      cmd.addIntegerOption((o) =>
+        o
+          .setName('seconds')
+          .setDescription(`How many seconds to jump ${verb} (default ${DEFAULT_SEEK_SECONDS}).`)
+          .setRequired(false),
+      );
+      cmds.push(cmd);
+    }
   }
 
   cmds.push(
@@ -331,6 +362,37 @@ export function describeResume(result: AgentResult): Reply {
 }
 
 /**
+ * Turn a media agent's `/seek` result into what the channel sees (005).
+ *
+ * **States what was issued, never what was achieved** (FR-003). M0 §5 measured VLC
+ * accepting absurd positions literally, §7 measured a step resuming a paused player, and
+ * §6 measured a `200` coming back for a command VLC does not even recognise — so there is
+ * nothing here the reply could honestly claim beyond "this was sent".
+ *
+ * The direction is read from the **sign**, which is what makes `/back -30` say *forward*:
+ * the amount was passed through exactly as given, and the reply is honest about the
+ * consequence rather than hiding it. Names no item, file, position, or duration (FR-002).
+ */
+export function describeSeek(result: AgentResult, seconds: number): Reply {
+  if (!result.reached) return unreachable(result.reason);
+  const { status, body } = result;
+  const direction = seconds < 0 ? 'back' : 'forward';
+  const magnitude = Math.abs(seconds);
+
+  if (status === 200) {
+    return { tone: 'ok', text: `Jumping ${direction} ${magnitude}s.` };
+  }
+  // Same tier and same terms as pause's refusal — all six media commands read alike
+  // when nothing is loaded (SC-003).
+  if (status === 409) return { tone: 'refused', text: 'Nothing is playing — nothing to jump.' };
+  return {
+    tone: 'failed',
+    text: 'Could not jump the player.',
+    footnote: body.message ?? `Agent returned HTTP ${status}.`,
+  };
+}
+
+/**
  * `/status` — every server's state at once, read-only (US2). Queries all agents in
  * parallel; each server is independent, so one unreachable agent does not stop the
  * others being reported. Names no single server — it reports them all.
@@ -417,6 +479,29 @@ export async function handlePause(
   }
   await interaction.editReply({
     embeds: [toEmbed(describePause(await routed.agent.pause()), serverName)],
+  });
+}
+
+/**
+ * `/forward [seconds]` and `/back [seconds]` — move the position relative to now (005).
+ *
+ * Bare commands, so the target comes from config exactly as `/pause` does. `seconds` is
+ * already **signed** by the caller: the sign carries the direction, which is why one
+ * handler serves both commands and no branch here decides which way to go.
+ */
+export async function handleSeek(
+  interaction: ChatInputCommandInteraction,
+  agents: ReadonlyMap<string, AgentClient>,
+  serverName: string,
+  seconds: number,
+): Promise<void> {
+  const routed = routeToAgent(serverName, agents);
+  if ('reply' in routed) {
+    await interaction.editReply({ embeds: [toEmbed(routed.reply, serverName)] });
+    return;
+  }
+  await interaction.editReply({
+    embeds: [toEmbed(describeSeek(await routed.agent.seek(seconds), seconds), serverName)],
   });
 }
 
