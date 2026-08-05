@@ -125,6 +125,20 @@ test('a malformed target within a tenant fails loud (the 003 rules, now nested)'
   );
 });
 
+test('a tenant with more than one media target fails loud (/pause·/play are bare)', () => {
+  assert.throws(
+    () =>
+      parseServers(
+        [
+          { name: 'vlc1', url: 'http://127.0.0.1:8080', kind: 'media' },
+          { name: 'vlc2', url: 'http://127.0.0.1:8081', kind: 'media' },
+        ],
+        'TENANTS[0]',
+      ),
+    /more than one media|at most one/i,
+  );
+});
+
 test('address is opaque — a non-loopback URL is accepted (FR-009 readiness)', () => {
   // The tenancy model must not assume loopback; a future off-box target is a different
   // url (plus a separate spec's auth), not a config-model change.

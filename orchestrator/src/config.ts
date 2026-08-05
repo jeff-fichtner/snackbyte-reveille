@@ -101,7 +101,7 @@ export function parseServers(rawAgents: unknown, where: string): readonly Contro
     throw new Error(`${where}.agents must be a non-empty array of targets.`);
   }
   const seen = new Set<string>();
-  return rawAgents.map((entry, i): ControlledServer => {
+  const servers = rawAgents.map((entry, i): ControlledServer => {
     const at = `${where}.agents[${i}]`;
     if (typeof entry !== 'object' || entry === null) {
       throw new Error(`${at} must be an object like {"name","url","kind"}.`);
@@ -136,6 +136,18 @@ export function parseServers(rawAgents: unknown, where: string): readonly Contro
     }
     return { name, baseUrl, kind };
   });
+
+  // `/pause`/`/play` are BARE — there is no subcommand to name a second media target
+  // (SC-001) — so a tenant with more than one media target could only ever control the
+  // first, leaving the rest silently uncontrollable (they would still show in /status).
+  // Fail loud at boot rather than bury that (the no-silent-wrong-behaviour rule).
+  if (servers.filter((s) => s.kind === 'media').length > 1) {
+    throw new Error(
+      `${where}.agents has more than one media target; a tenant may have at most one — ` +
+        `/pause and /play are bare and cannot name a second.`,
+    );
+  }
+  return servers;
 }
 
 /**
