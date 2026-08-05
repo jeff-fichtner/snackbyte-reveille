@@ -162,7 +162,14 @@ test('POST /seek requires an integer `seconds` and never invents a default (005,
     // Missing / blank / non-integer are CALLER BUGS: 400, naming the parameter. M0 §6
     // measured VLC parsing `val=abc` as 0 and seeking absolutely to the start, so a
     // silent default here would be destructive rather than merely wrong.
-    for (const q of ['', '?seconds=', '?seconds=abc', '?seconds=1.5', '?seconds=1e3', '?seconds=0x1f']) {
+    for (const q of [
+      '', '?seconds=', '?seconds=abc', '?seconds=1.5', '?seconds=1e3', '?seconds=0x1f',
+      // Beyond MAX_SAFE_INTEGER a JS number cannot hold the value: 9007199254740993
+      // silently becomes …992, and 1e21 stringifies to `1e+21` — a malformed `val` on
+      // the wire. FR-004 says "exactly as given", so this fails loud (T027).
+      '?seconds=9007199254740993', '?seconds=1000000000000000000000',
+      '?seconds=-9007199254740993',
+    ]) {
       const res = await fetch(`${base}/seek${q}`, { method: 'POST' });
       assert.equal(res.status, 400, `\`${q}\` must be refused, not defaulted`);
       assert.match((await body(res)).message ?? '', /seconds/, 'the 400 must name the parameter');
@@ -171,13 +178,19 @@ test('POST /seek requires an integer `seconds` and never invents a default (005,
 
     // A well-formed amount reaches the adapter EXACTLY as given — no magnitude
     // conversion, no clamping, no range check (FR-005).
-    for (const q of ['30', '-30', '0', '-0', '99999']) {
+    // The safe-integer boundary itself is ACCEPTED — the guard refuses only what cannot
+    // be represented, and clamps nothing inside the range (FR-005).
+    for (const q of ['30', '-30', '0', '-0', '99999', '9007199254740991', '-9007199254740991']) {
       const res = await fetch(`${base}/seek?seconds=${q}`, { method: 'POST' });
       assert.equal(res.status, 200);
       // 200 means ISSUED — the body reports the state we read, never where it landed.
       assert.deepEqual(await res.json(), { state: 'playing' });
     }
-    assert.deepEqual(seen, [30, -30, 0, -0, 99999], 'the amount must pass through untouched');
+    assert.deepEqual(
+      seen,
+      [30, -30, 0, -0, 99999, 9007199254740991, -9007199254740991],
+      'the amount must pass through untouched',
+    );
   } finally {
     await close();
   }

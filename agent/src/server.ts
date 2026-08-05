@@ -191,6 +191,29 @@ async function handleSeek(adapter: MediaAdapter, req: IncomingMessage): Promise<
     };
   }
   const seconds = Number(raw.trim());
+  // FR-004 requires the amount be honoured EXACTLY as given, and beyond
+  // `Number.MAX_SAFE_INTEGER` a JS number cannot hold one: `9007199254740993` silently
+  // becomes `…992`, and from 1e21 upward `String()` switches to exponential notation,
+  // which would put a malformed `val=1e+21` on the wire. Fail loud instead of seeking
+  // somewhere the caller did not ask for.
+  //
+  // **This is not the bound FR-005 forbids.** FR-005 bans clamping the seek *distance* —
+  // capping it to the item's length, inventing a sensible maximum, second-guessing what
+  // the member meant. This refuses a value the transport cannot represent *at all*, which
+  // is the no-silent-wrong-behaviour rule rather than a range check. Nothing inside the
+  // representable range is touched, and 2^53 seconds is about 285 million years, so no
+  // meaningful seek is excluded (T027, converge).
+  if (!Number.isSafeInteger(seconds)) {
+    return {
+      status: 400,
+      body: {
+        state: 'error',
+        message:
+          `Query parameter \`seconds\` is too large to represent exactly, got ${JSON.stringify(raw)}. ` +
+          `The limit is ±${Number.MAX_SAFE_INTEGER}.`,
+      },
+    };
+  }
 
   const state = await adapter.getState();
   // M0 §9: every media command no-ops SILENTLY with nothing loaded, and still answers
