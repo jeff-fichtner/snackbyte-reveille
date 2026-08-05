@@ -168,3 +168,12 @@ That is the whole user-visible feature; US2 and US3 prove properties of it rathe
 - **No description is written twice.** Every string the listing shows is the registered one, verbatim. A test that hardcodes expected text defeats the feature.
 - **No M0, no `DECISIONS.md` entry, no configuration, no dependency, no new component.**
 - **Empty groups cannot render** because they are never constructed — the guarantee lives in T001, not in the renderer.
+
+---
+
+## Phase 6: Convergence
+
+Appended by `/speckit-converge`. Two gaps between stated intent and the code as built.
+
+- [ ] T014 Wrap the `/help` branch in its own error handling in `orchestrator/src/index.ts` per tasks T006, FR-006, SC-001 (partial) — the branch sits **before** the `try {`, and `handle()` is invoked as `void handle(...)`, so anything it throws (realistically `interaction.reply()` on a transient failure) becomes an **unhandled promise rejection**: under Node 24's default that terminates the orchestrator, and the member is left with "the application did not respond". T006 required the branch to "reply or fail within itself" and it currently does neither. Give it a `try/catch` that answers with a failure reply, so the one command that cannot use the outer handler still cannot leave a member guessing (SC-001). Note `await interaction.deferReply()` on the following line has the same exposure and pre-dates this feature — closing both together is the tidier fix, but only the `/help` branch is 006's gap.
+- [ ] T015 Make a subcommand **group** fail loudly rather than render nonsense in `orchestrator/src/commands.ts` per FR-002, contracts rule 4 (partial) — `toCommandEntries` treats any option that is not type 1 as an argument, so a Discord subcommand group (type 2, `/cmd group sub`) would render as `[group]`: a plausible-looking, silently wrong entry. Unreachable today because this system registers only subcommands (type 1) and integers (type 4), which is why it is LOW — but silent-wrong-output is the exact failure class this feature exists to prevent, and the guard is one branch. Either expand groups properly or throw naming the unsupported shape.
