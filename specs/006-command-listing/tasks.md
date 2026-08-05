@@ -86,6 +86,30 @@ question; this is none). An empty phase is not written just to have one.
 
 ---
 
+## T013 status — what was verified automatically, and what is left
+
+**Done automatically:**
+
+| Quickstart | Result |
+|---|---|
+| §1 unit gate | ✅ **127 tests**, typecheck + lint clean |
+| §2 **drift walkthrough** | ✅ Changed `/pause`'s registered description to "Hold the show." — the listing followed with **zero other edits**, and all 127 tests still passed, proving no test hardcodes the literal. Reverted. |
+| §4 scoping | ✅ media-only and game-only tenants each list only their own commands, with no empty group |
+| §6 availability ≠ readiness | ✅ the listing renders with no `AgentClient` in existence |
+| §8 regression | ✅ `git diff main..HEAD -- contract/ agent/` is **empty**; no env var, port, or config change |
+| §9 homepage | ✅ describes `/help`, claims no capability the system lacks |
+| **Live registration** | ✅ `/help` registered in **both** guilds (7→8, 10→11), bare with no options. The tightened `seconds` description propagated to Discord's picker too — one copy, both surfaces. |
+
+**Left for a human** — genuinely irreducible:
+
+- **§3** — issue `/help` in a guild and read it: is it scannable, does the grouping help, can you copy a line and run it?
+- **§5** — the **ephemeral** check. Whether *other people* can see a message is not observable from the process that sent it; someone else has to confirm they see nothing.
+- **§7** — the content-leak audit as a judgement rather than a regex.
+
+The orchestrator is running (`reveille#6131`), so `/help` is ready to try.
+
+---
+
 ## Phase 5: Polish & Cross-Cutting Concerns
 
 - [X] T010 [P] Update `site/index.html` per the v1.2.0 homepage rule (**FR-021, SC-010**) — describe `/help` as what it is: a list of the commands available *in that server*. Describe **no** capability the system lacks; in particular do not imply it reports target state, which is `/status`. Land the minimal honest change.
