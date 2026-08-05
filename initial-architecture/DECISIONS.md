@@ -761,3 +761,115 @@ guild **per tenant**" — the guild is still the trust boundary. **No constituti
 is needed: a tenant is a *row*, the components and the seam are unchanged (contrast 003,
 which amended Principle II to admit a non-game target). Authentication and off-box
 addressing remain a separate, deferred spec (FR-013).
+
+---
+
+## 022 · The media ban narrows: no *knowledge* of content, not no *movement* through it
+**Date:** 2026-08-04 · **Status:** accepted
+**Closes:** whether Reveille may step through a playlist or move within an item (005)
+
+**Context.** 003 gave the media target exactly two acting verbs and drew a hard line
+around them: FR-004 said the system "MUST act only on the content already loaded" and
+"MUST NOT select, open, browse, list, search, or change what is playing." That line was
+enforced against adapter *source* by `agent/src/vlc.test.ts`, which bans `pl_next`,
+`pl_previous` and `command=seek` by name. The slogan was "Reveille toggles playback,
+never chooses what plays."
+
+Watch-party use produced two recurring reasons to walk to the machine: someone talked
+over a line and it needs replaying, and the episode ended and the next one should start.
+Both are forbidden by the line as drawn — and stepping to the next item genuinely *does*
+change what is playing, so 005 amends the requirement rather than extending it.
+
+**Decision.** The ban moves from **no movement through content** to **no knowledge of
+content**. Blind relative movement becomes permitted: stepping to the *adjacent* playlist
+item (`pl_next`/`pl_previous`) and moving position *relative to now* within the loaded
+item (a relative `seek`). Everything that would give the system knowledge of, or a way to
+choose, content stays forbidden — selecting or opening a named item, enqueuing, clearing
+or removing playlist entries, **jumping to a nominated item** (`pl_jump`), and exposing
+any file, library, or playlist surface. Volume, stop, and OS-level termination are
+untouched and stay banned.
+
+**Context-free means no knowledge of *content*, not of *state*.** Reveille may read
+playback state (`playing`/`paused`/`stopped`) — it already publishes exactly that via
+`/status` — and may refuse when the player is in no state to act, exactly as `pause` and
+`resume` already do. The read happens **before** the command as a precondition, never
+after it as verification: the system still never checks whether a control achieved
+anything, and never claims a result it did not confirm.
+
+**Why it won.** The organizing test became "does this require knowing what is loaded?"
+`pl_next` needs to know nothing — it is a blind step. `pl_jump` needs to know the
+playlist. That question is answerable per command, mechanically, and it is what keeps the
+bans enforceable as a source-level check rather than a judgement call.
+
+Chosen over the narrower line "position within an item is fair game, playlist stepping is
+not" — which draws the boundary at *movement* rather than at *knowledge*, and would have
+permitted seeking while forbidding `pl_next` for no principled reason. Also chosen over
+leaving 003's line intact and adding a content-picker later: that is the opposite feature,
+and it would have grown what Reveille knows rather than what it can do.
+
+**Consequences.** `vlc.test.ts` is redrawn rather than relaxed: three patterns move from
+forbidden to **required**, and one is **added** — an *absolute* seek (scrubbing to a
+timestamp), which `FR-011` mandates as a new ban because relative-versus-absolute is the
+only boundary this amendment creates. The check ends up stricter in the dimension that
+matters. The media target's verb count grows; nothing else about it changes. 003's other
+guarantees are untouched: content is never streamed, recorded or relayed (003 FR-011), the
+player process is never terminated, and no network exposure is added.
+
+---
+
+## 023 · The seam gains three media verbs and its first operation parameter (contract v4)
+**Date:** 2026-08-04 · **Status:** accepted
+**Closes:** how a value crosses the seam without becoming a target identifier (005)
+
+**Context.** The seam has grown three times and never carried a request payload: v1 (001)
+had `POST /start` and `POST /stop`, v2 (002) added `GET /status`, v3 (003) added
+`POST /pause` and `POST /play`. **Every verb to date is a bare POST** — the agent has
+never read a request body or a query string, because an agent's URL is its identity and
+nothing else needed to be said.
+
+005 adds four Discord commands, two of which carry an amount: seek forward and seek back
+take an optional number of seconds. That amount has to reach the agent somehow, and it is
+the first time any data has needed to.
+
+**Decision.** Contract **v4**, purely additive: `POST /next`, `POST /previous`, and
+`POST /seek?seconds=<signed integer>`. `contract/src/index.ts` **does not change** — v4
+adds verbs and one parameter, not types; `ServerState`, `MediaState` and `AgentResponse`
+are byte-for-byte v3.
+
+**Three verbs, not four.** Forward and back are one operation over a signed magnitude, so
+they share `/seek`; the orchestrator negates for `/back`. The direction lives in the sign,
+not in the verb.
+
+**The rule that keeps Constitution I intact:** *a parameter of the **operation** may cross
+the seam; a name for **which target** may not.* `seconds` says how far to move. It is
+meaningless as a routing key, cannot select a target, and would be nonsense on `/status`.
+Constitution I bans a server identifier, machine identifier, or routing discriminator —
+something answering "**which** one"; `seconds` answers "**how much**". This precedent does
+**not** license a `target`, `name`, `id`, `host`, or `kind` parameter in any position,
+ever; those remain an architecture change.
+
+**Why a query parameter over a JSON body.** The agent already computes its route as
+`(req.url ?? '').split('?')[0]`, so a query string is *already* tolerated and discarded —
+reading it costs a few lines with the platform's own `URLSearchParams`. A body would have
+introduced the agent's first request-body reader: stream buffering, `Content-Length`
+handling, a parse with malformed-input handling, and a size guard — real machinery to
+carry one integer, and a new dependency risk against the agent's zero-runtime-deps rule.
+Constitution III makes the minimum the default. Chosen over a body (cost), a path segment
+(`/seek/30` reads like an identifier in a path — the exact shape Constitution I trains
+everyone to distrust), and a header (headers are transport metadata, not operation
+parameters).
+
+**The default lives outside the seam.** The 30-second default belongs to the Discord
+surface, where a *member* may omit the argument. By the time a request reaches the agent
+the amount is always explicit, so a missing, blank, or non-integer `seconds` is a **400**
+naming the parameter — not a defaulted 30. A member omitting an argument is a documented
+choice; the orchestrator omitting the parameter is a bug, and giving a required value a
+silent fallback is exactly the pattern that turns "the caller forgot" into a mysterious
+half-minute jump.
+
+**Consequences.** A media agent now answers five acting verbs (`pause`, `play`, `next`,
+`previous`, `seek`) plus the read-only `status`, surfaced as six Discord commands — the
+6-to-5 asymmetry is the sign-carries-direction decision showing through. All five acting
+verbs are serialized on the agent's command mutex; `status` stays outside it. A game agent
+404s all three new verbs. v1/v2/v3 behaviour is byte-for-byte unchanged, so a conformance
+check written against any earlier version still passes.
