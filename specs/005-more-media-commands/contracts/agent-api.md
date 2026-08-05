@@ -106,12 +106,18 @@ the Discord surface, where a *member* may omit the argument; by the time a reque
 seam the amount is always explicit. An absent, blank, or non-integer value is a caller bug and
 is rejected loudly rather than defaulted.
 
+**Unbounded is not the same as unrepresentable.** The agent applies no range check to the seek
+*distance* (FR-005) — but a value beyond ±2^53−1 cannot survive as a JS number, so it is
+rejected with a `400` rather than silently altered on the wire. That is the
+no-silent-wrong-behaviour rule rather than a cap: nothing inside the representable range is
+touched, and 2^53 seconds is roughly 285 million years.
+
 **Responses**
 
 | Status | `state` | Meaning |
 |---|---|---|
 | `200` | `playing` \| `paused` | The seek was issued. **Not** a claim about where it landed. |
-| `400` | `error` | `seconds` missing, blank, or not an integer — named in `message` |
+| `400` | `error` | `seconds` missing, blank, not an integer, or **larger than can be represented exactly** (beyond ±2^53−1) — named in `message` |
 | `409` | `stopped` | Nothing is loaded — refused honestly (FR-006a) |
 | `500` | `error` | The player could not be told to seek |
 

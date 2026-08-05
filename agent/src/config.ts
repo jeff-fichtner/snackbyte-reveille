@@ -85,7 +85,7 @@ export interface VlcConfig extends CommonConfig {
 /**
  * One agent controls exactly one target. The `target` tag is the discriminant every
  * adapter narrows on; no other field is read across targets. Media (`vlc`) has no
- * `stopTimeoutMs` — it never stops a process, it toggles playback.
+ * `stopTimeoutMs` — it never stops a process, it controls playback of what is loaded.
  */
 export type AgentConfig = PalworldConfig | SatisfactoryConfig | VlcConfig;
 

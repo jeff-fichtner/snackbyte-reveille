@@ -7,16 +7,28 @@
  * player is a different adapter here, not a change to the seam.
  *
  * This talks to VLC's built-in HTTP web interface over loopback, exactly as
- * observed during M0 (`specs/003-media-control/m0-vlc.md`) — not from docs. Plain
- * HTTP with native `fetch`: the interface binds `127.0.0.1` and speaks HTTP, so
- * unlike Satisfactory there is no self-signed TLS and therefore no `node:https`,
- * and the agent keeps zero runtime dependencies.
+ * observed during M0 — `specs/003-media-control/m0-vlc.md` for the endpoint, auth,
+ * state values and the force pause/resume commands, and
+ * `specs/005-more-media-commands/m0-vlc-controls.md` for the stepping and relative-seek
+ * commands — not from docs. Plain HTTP with native `fetch`: the interface binds
+ * `127.0.0.1` and speaks HTTP, so unlike Satisfactory there is no self-signed TLS and
+ * therefore no `node:https`, and the agent keeps zero runtime dependencies.
  *
- * What MUST NOT appear here (FR-004, FR-011): no OS-level process termination, and
- * no content control of any kind — no playlist, no file/item selection, no seek, no
- * volume. Reveille toggles playback of whatever the operator already loaded; it
- * never chooses or changes *what* plays. `vlc.test.ts` asserts these bans on the
- * source.
+ * WHAT MAY AND MAY NOT APPEAR HERE. 005 moved this line (DECISIONS 022): the rule is
+ * **no KNOWLEDGE of content**, not **no MOVEMENT through content**. 003's older phrasing
+ * — "Reveille toggles playback, never chooses what plays" — no longer describes the file.
+ *
+ *   Permitted : blind relative movement — `pl_next`, `pl_previous`, and a RELATIVE
+ *               `seek`. None of them needs to know what is loaded.
+ *   Forbidden : anything that does — `pl_jump` (a NOMINATED item, the sharpest contrast
+ *               with `pl_next`), `pl_play`, `in_play`, `in_enqueue`, `pl_empty`,
+ *               `pl_delete`; plus volume, `pl_stop`, and OS-level process termination.
+ *   Forbidden : an ABSOLUTE seek (FR-011). A bare `val=30` seeks *to* 0:30 rather than
+ *               forward 30s — silent and plausible-looking — so every seek carries an
+ *               explicit sign.
+ *
+ * `vlc.test.ts` asserts all of the above against this source, and additionally pins the
+ * exact request line each permitted command emits.
  */
 import type { MediaState } from '@reveille/contract';
 import type { VlcConfig } from './config.ts';
