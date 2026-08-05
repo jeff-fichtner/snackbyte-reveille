@@ -722,3 +722,42 @@ any amendment, so this is it.
 from `/speckit-tasks` onward. This entry is retroactive for 003 — its homepage update
 was done at ship time, and the rule is written so 004 onward plans it in from the
 start.
+
+---
+
+## 021 · Multi-tenant: each guild controls its own targets (replaces the stopgap)
+**Date:** 2026-08-04 · **Status:** accepted
+**Closes:** how several Discord guilds coexist without sharing one target set (004)
+
+**Context.** The 003 stopgap (a comma-separated `DISCORD_GUILD_ID` over a flat `AGENTS`)
+let the same commands appear in more than one guild — but every guild drove the **same**
+targets, so anyone in any configured guild controlled everything. That is multi-*guild*,
+not multi-*tenant*. It was explicitly temporary, pending this decision.
+
+**Decision.** A guild is a **tenant**: `TENANTS` maps each guild id to its **own** set of
+targets (the existing per-target shape, nested). A command is registered per guild from
+only that tenant's targets, and routed only within the tenant its guild selects — a guild
+sees and reaches **only** its own targets, never another's. **One orchestrator serves
+every tenant** (Constitution II); the bot does not multiply. Isolation is **structural**:
+a handler is only ever handed its resolved tenant's maps, so another tenant's target is
+not in scope to reach or reveal. A target may be **shared** across guilds or **exclusive**
+to one — the operator's choice, per target (Clarifications 2026-08-04). The stopgap shape
+is **rejected loudly** at boot (no silent reinterpretation) — migration is deliberate.
+
+**Why it won.** Keying the config and routing by guild makes isolation a property of the
+data structure, not a filter that can be forgotten. The seam is left **untouched** — no
+tenant or target id enters the contract (Constitution I), and the agent is byte-for-byte
+the same — which is the whole "build it correct so off-box is additive later" bet: a future
+target on another machine is a different `url` (plus a separate spec's authentication) in a
+tenant's list, never a rewrite of this. Chosen over: a `tenantId` in the seam (violates I);
+isolation-by-runtime-filter (a missed call site leaks); and a **federated** model — one
+orchestrator/bot per tenant (a different shape, deferred — it distributes trust but needs a
+bot per tenant; revisit when a tenant is used by someone who isn't the operator).
+
+**Consequences.** The orchestrator's config becomes `TENANTS` (a `guildId → Tenant` map)
+and its dispatch resolves the tenant per interaction; `contract/` and `agent/` are not
+opened (SC-005). The per-guild trust model widens from "one private guild" to "one private
+guild **per tenant**" — the guild is still the trust boundary. **No constitution amendment**
+is needed: a tenant is a *row*, the components and the seam are unchanged (contrast 003,
+which amended Principle II to admit a non-game target). Authentication and off-box
+addressing remain a separate, deferred spec (FR-013).

@@ -4,6 +4,11 @@
  * Owns the Discord gateway. The bot dials OUT to Discord, so nothing inbound is
  * ever needed: no port forward, no tunnel, no hostname (DECISIONS 006).
  *
+ * Since 004 it is multi-tenant: each configured guild is a tenant scoped to its own
+ * targets, and a command is routed ONLY within the tenant its guild selects. One
+ * orchestrator holds every tenant (Constitution II) — the bot does not multiply. No
+ * tenant or target id enters the seam (Constitution I); tenancy is enforced here.
+ *
  * Do NOT set an Interactions Endpoint URL in the Discord developer portal. Doing
  * so switches delivery to HTTP POSTs at a public URL and forfeits that property.
  */
@@ -12,12 +17,12 @@ import {
   GatewayIntentBits,
   REST,
   Routes,
-  SlashCommandBuilder,
   type ChatInputCommandInteraction,
 } from 'discord.js';
-import { loadConfig, type GameServer } from './config.ts';
+import { loadConfig, type GameServer, type ControlledServer, type Tenant } from './config.ts';
 import { AgentClient } from './agent-client.ts';
 import {
+  buildCommands,
   handleStart,
   handleStop,
   handleAddress,
@@ -29,82 +34,52 @@ import { armFollowup, shouldFollowUp } from './followup.ts';
 
 const config = loadConfig();
 
-// One agent client and one public port per controlled server, keyed by name. The
-// name is the routing key here and on the Discord surface only — never in the
-// contract (Constitution I). Adding a server is one more `AGENTS` entry, no code.
-const agents = new Map(config.servers.map((s) => [s.name, new AgentClient(s.baseUrl)]));
-// `/address` needs a public port — game targets only (a media target has none).
-const ports = new Map(
-  config.servers.filter((s): s is GameServer => s.kind === 'game').map((s) => [s.name, s.publicPort]),
-);
-// The single media target, if configured — `/pause`/`/play` act on it (bare, SC-001).
-const mediaTarget = config.servers.find((s) => s.kind === 'media');
-
 /**
- * The three verbs, each with one subcommand PER CONFIGURED SERVER, built from
- * config. `setDefaultMemberPermissions` is deliberately NOT set: any member of the
- * Discord server may issue any command, with no role check (FR-001). Trust comes
- * from the guild being private, not from a permission gate.
- *
- * A subcommand rather than an option because "server" is what Discord calls a
- * guild, so `/start server:palworld` reads as the wrong thing entirely — and
- * Discord requires a subcommand to be chosen, which enforces "never assume a
- * default target" (FR-019) at the protocol rather than in our code. An unknown
- * name cannot even be submitted through the picker.
+ * Per-tenant runtime: one guild's own agent clients, public ports, and media target.
+ * A command is only ever handed the maps of the tenant its guild selects, so a target
+ * outside that tenant is not in scope to reach or reveal — isolation is **structural**
+ * (FR-002), not a filter that could be forgotten.
  */
-function buildCommands() {
-  // Registration is PARTITIONED by kind (analyze F1): the game verbs get a subcommand
-  // per game target only — a media target must NOT surface as `/start vlc` and route a
-  // start to an agent that has no `/start`.
-  const games = config.servers.filter((s) => s.kind === 'game');
-  const cmds: SlashCommandBuilder[] = [];
-
-  if (games.length > 0) {
-    const start = new SlashCommandBuilder().setName('start').setDescription('Start a game server.');
-    const stop = new SlashCommandBuilder()
-      .setName('stop')
-      .setDescription('Save the world and stop a game server.');
-    // `/address` names a server too: two servers share the public IP but differ in
-    // game port, so there is no single address to report.
-    const address = new SlashCommandBuilder()
-      .setName('address')
-      .setDescription('Show where players connect for a server.');
-    for (const s of games) {
-      start.addSubcommand((sub) => sub.setName(s.name).setDescription(`Start the ${s.name} server.`));
-      stop.addSubcommand((sub) =>
-        sub.setName(s.name).setDescription(`Save the world and stop the ${s.name} server.`),
-      );
-      address.addSubcommand((sub) =>
-        sub.setName(s.name).setDescription(`Show the address for the ${s.name} server.`),
-      );
-    }
-    cmds.push(start, stop, address);
-  }
-
-  // `/pause` and `/play` are BARE (no subcommand): there is one media target, so it can
-  // be controlled in two taps (SC-001, FR-015). Registered only when one is configured.
-  if (mediaTarget) {
-    cmds.push(new SlashCommandBuilder().setName('pause').setDescription('Pause the show.'));
-    cmds.push(new SlashCommandBuilder().setName('play').setDescription('Resume the show.'));
-  }
-
-  // `/status` names NO target — it reports them all, games and media alike.
-  cmds.push(new SlashCommandBuilder().setName('status').setDescription('Show the state of every target.'));
-
-  return cmds.map((c) => c.toJSON());
+interface TenantRuntime {
+  readonly tenant: Tenant;
+  readonly agents: Map<string, AgentClient>;
+  readonly ports: Map<string, number>;
+  readonly mediaTarget: ControlledServer | undefined;
 }
 
-const commands = buildCommands();
+function buildRuntime(tenant: Tenant): TenantRuntime {
+  return {
+    tenant,
+    // The name is the routing key here and on the Discord surface only — never in the
+    // contract (Constitution I). An agent's URL is its identity.
+    agents: new Map(tenant.servers.map((s) => [s.name, new AgentClient(s.baseUrl)])),
+    // `/address` needs a public port — game targets only (a media target has none).
+    ports: new Map(
+      tenant.servers
+        .filter((s): s is GameServer => s.kind === 'game')
+        .map((s) => [s.name, s.publicPort]),
+    ),
+    // The tenant's single media target, if any — `/pause`/`/play` act on it (bare, SC-001).
+    mediaTarget: tenant.servers.find((s) => s.kind === 'media'),
+  };
+}
+
+// Guild id → its runtime. The interaction's guild is the routing key; a guild absent
+// here is not a configured tenant and is ignored (FR-006). Adding a tenant is one more
+// `TENANTS` entry — no code (FR-005).
+const runtimes = new Map<string, TenantRuntime>(
+  [...config.tenants.values()].map((t) => [t.guildId, buildRuntime(t)]),
+);
 
 export async function registerCommands(): Promise<void> {
   const rest = new REST({ version: '10' }).setToken(config.discordBotToken);
-  // Register the identical command set to each configured guild, so every one of them
-  // shows the same commands (the stopgap: two private guilds, one bot).
-  for (const guildId of config.discordGuildIds) {
-    await rest.put(
-      Routes.applicationGuildCommands(config.discordApplicationId, guildId),
-      { body: commands },
-    );
+  // Register EACH guild's commands, built from ONLY that tenant's targets (FR-003).
+  // A guild's picker therefore shows its own targets and no other tenant's — a target
+  // it does not own cannot even be submitted.
+  for (const rt of runtimes.values()) {
+    await rest.put(Routes.applicationGuildCommands(config.discordApplicationId, rt.tenant.guildId), {
+      body: buildCommands(rt.tenant.servers),
+    });
   }
 }
 
@@ -119,63 +94,65 @@ client.once('clientReady', () => {
 client.on('interactionCreate', (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
-  // FR-001's "any member of the Discord server" means a CONFIGURED server. The whole
-  // justification for having no authorization is that those guilds are private and
-  // trusted (spec Assumptions). The bot can sit in other servers (a stray one, a test
-  // guild), and a command arriving from any guild NOT in the configured set is ignored
-  // — otherwise it would be a live control surface for the same host. (Stopgap: the
-  // set is normally one guild; here it is two, pending the per-tenant spec.)
-  if (interaction.guildId === null || !config.discordGuildIds.includes(interaction.guildId)) {
+  // Only a CONFIGURED guild (a tenant) may command anything (FR-001, FR-006). An
+  // interaction from any other guild the bot also sits in is ignored — otherwise it
+  // would be a live control surface for a host it should not touch. Resolving the
+  // tenant here is what scopes everything downstream to that guild's targets.
+  const runtime = interaction.guildId === null ? undefined : runtimes.get(interaction.guildId);
+  if (runtime === undefined) {
     process.stdout.write(
       `ignored /${interaction.commandName} from unconfigured guild ${interaction.guildId ?? 'DM'}\n`,
     );
     return;
   }
 
-  void handle(interaction);
+  void handle(interaction, runtime);
 });
 
-async function handle(interaction: ChatInputCommandInteraction): Promise<void> {
+async function handle(interaction: ChatInputCommandInteraction, rt: TenantRuntime): Promise<void> {
   // Defer FIRST, before touching the agent. Discord gives ~3 seconds to
   // acknowledge and a start takes far longer than that (SC-004).
   await interaction.deferReply();
 
   try {
-    // `/status` names no target — it reports them all, and has no subcommand.
+    // EVERY handler operates on THIS tenant's maps only. A name is resolved within the
+    // tenant, so one guild's command can never reach another guild's target (FR-002),
+    // and `/status` folds only this tenant's targets (FR-012).
     if (interaction.commandName === 'status') {
-      return await handleStatus(interaction, agents);
+      return await handleStatus(interaction, rt.agents);
     }
 
-    // `/pause` and `/play` name no target either — bare commands acting on the one
-    // configured media player (SC-001). No subcommand to read.
+    // `/pause` and `/play` name no target — bare commands acting on this tenant's one
+    // media player (SC-001). Registered only when the tenant has one.
     if (interaction.commandName === 'pause' || interaction.commandName === 'play') {
-      if (mediaTarget === undefined) {
-        await interaction.editReply('No media player is configured.');
+      if (rt.mediaTarget === undefined) {
+        await interaction.editReply('No media player is configured for this server.');
         return;
       }
       return interaction.commandName === 'pause'
-        ? await handlePause(interaction, agents, mediaTarget.name)
-        : await handleResume(interaction, agents, mediaTarget.name);
+        ? await handlePause(interaction, rt.agents, rt.mediaTarget.name)
+        : await handleResume(interaction, rt.agents, rt.mediaTarget.name);
     }
 
     // The acting game verbs each name their server as the subcommand (FR-018/019);
-    // Discord guarantees one was chosen, since each is nothing but subcommands.
+    // Discord guarantees one was chosen, and it can only be one of THIS tenant's
+    // targets, since that is all this guild had registered.
     const server = interaction.options.getSubcommand();
     switch (interaction.commandName) {
       case 'start': {
-        const result = await handleStart(interaction, agents, server);
-        // Only an actual launch (202) is watched; a refusal or unreachable host
-        // arms nothing (FR-030). Fire-and-forget — the reply already went out.
+        const result = await handleStart(interaction, rt.agents, server);
+        // Only an actual launch (202) is watched; a refusal or unreachable host arms
+        // nothing (FR-030). The follow-up watches THIS tenant's agent.
         if (shouldFollowUp(result)) {
-          const agent = agents.get(server);
+          const agent = rt.agents.get(server);
           if (agent) armFollowup(interaction, server, agent, config.followupTimeoutMs);
         }
         return;
       }
       case 'stop':
-        return await handleStop(interaction, agents, server);
+        return await handleStop(interaction, rt.agents, server);
       case 'address':
-        return await handleAddress(interaction, ports, server);
+        return await handleAddress(interaction, rt.ports, server);
       default:
         await interaction.editReply(`Unknown command \`/${interaction.commandName}\`.`);
         return;

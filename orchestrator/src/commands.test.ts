@@ -9,7 +9,9 @@ import {
   describeResume,
   toEmbed,
   routeToAgent,
+  buildCommands,
 } from './commands.ts';
+import type { ControlledServer } from './config.ts';
 import { AgentClient, type AgentResult } from './agent-client.ts';
 import type { AgentResponse } from '@reveille/contract';
 
@@ -331,4 +333,44 @@ test('the embed carries the text, and the footnote only when there is one', () =
 
   const without = toEmbed(describeStart(reached(409, { state: 'running' }))).toJSON();
   assert.equal(without.footer, undefined, 'a footer appeared with no footnote to put in it');
+});
+
+// ── 004: per-tenant scoped registration + isolation ──────────────────────────
+type Cmd = { name: string; options?: { name: string }[] };
+const TENANT_A: ControlledServer[] = [
+  { name: 'palworld', baseUrl: 'http://127.0.0.1:8300', kind: 'game', publicPort: 8211 },
+  { name: 'vlc', baseUrl: 'http://127.0.0.1:8302', kind: 'media' },
+];
+
+test('buildCommands scopes a guild to ONLY its own targets (FR-003)', () => {
+  const cmds = buildCommands(TENANT_A) as unknown as Cmd[];
+  assert.deepEqual(cmds.map((c) => c.name).sort(), ['address', 'pause', 'play', 'start', 'status', 'stop']);
+  // The acting game verbs name palworld and nothing else — no other tenant's game leaks in.
+  for (const verb of ['start', 'stop', 'address']) {
+    const subs = (cmds.find((c) => c.name === verb)?.options ?? []).map((o) => o.name);
+    assert.deepEqual(subs, ['palworld'], `/${verb} should offer only this tenant's game`);
+  }
+});
+
+test('buildCommands: a media-only tenant gets pause/play/status, no game verbs', () => {
+  const cmds = buildCommands([{ name: 'vlc', baseUrl: 'http://x', kind: 'media' }]) as unknown as Cmd[];
+  assert.deepEqual(cmds.map((c) => c.name).sort(), ['pause', 'play', 'status']);
+});
+
+test('buildCommands: a game-only tenant gets start/stop/address/status, no pause/play', () => {
+  const cmds = buildCommands([
+    { name: 'palworld', baseUrl: 'http://x', kind: 'game', publicPort: 8211 },
+  ]) as unknown as Cmd[];
+  assert.deepEqual(cmds.map((c) => c.name).sort(), ['address', 'start', 'status', 'stop']);
+});
+
+test('isolation: another tenant’s target is UNKNOWN to this tenant, never routed (FR-002)', () => {
+  // Guild A's map holds only palworld. A command naming satisfactory (guild B's target)
+  // is refused as unknown — it cannot be routed, because B's target is not in A's map.
+  const aAgents = new Map([['palworld', new AgentClient('http://127.0.0.1:8300')]]);
+  const routed = routeToAgent('satisfactory', aAgents);
+  assert.ok('reply' in routed, 'a foreign target must not resolve to an agent');
+  assert.equal(routed.reply.tone, 'refused');
+  assert.match(routed.reply.text, /palworld/, 'the refusal offers only this tenant’s targets');
+  assert.doesNotMatch(routed.reply.text, /8301/, 'must not reveal the other tenant’s agent');
 });

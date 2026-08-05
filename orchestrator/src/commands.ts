@@ -9,8 +9,56 @@
  * wording is still the whole substance; the colour only repeats what the text
  * already says, and no branch relies on it to be understood.
  */
-import { EmbedBuilder, type ChatInputCommandInteraction } from 'discord.js';
+import { EmbedBuilder, SlashCommandBuilder, type ChatInputCommandInteraction } from 'discord.js';
 import type { AgentClient, AgentResult } from './agent-client.ts';
+import type { ControlledServer } from './config.ts';
+
+/**
+ * Build ONE tenant's slash-command set from ITS targets (004 — scoped per guild). A
+ * guild registers, and therefore only ever sees, its own targets (FR-003): a target it
+ * does not own cannot even be picked. Game verbs get a subcommand per game target;
+ * `/pause`·`/play` are bare (one media target, SC-001); `/status` always.
+ *
+ * Partitioned by kind (003, analyze F1): a media target must NOT surface as `/start vlc`.
+ * `setDefaultMemberPermissions` is deliberately NOT set — any member of the (private,
+ * trusted) guild may issue any command (FR-001); trust is the guild, now per tenant.
+ */
+export function buildCommands(servers: readonly ControlledServer[]) {
+  const games = servers.filter((s) => s.kind === 'game');
+  const media = servers.find((s) => s.kind === 'media');
+  const cmds: SlashCommandBuilder[] = [];
+
+  if (games.length > 0) {
+    const start = new SlashCommandBuilder().setName('start').setDescription('Start a game server.');
+    const stop = new SlashCommandBuilder()
+      .setName('stop')
+      .setDescription('Save the world and stop a game server.');
+    const address = new SlashCommandBuilder()
+      .setName('address')
+      .setDescription('Show where players connect for a server.');
+    for (const s of games) {
+      start.addSubcommand((sub) => sub.setName(s.name).setDescription(`Start the ${s.name} server.`));
+      stop.addSubcommand((sub) =>
+        sub.setName(s.name).setDescription(`Save the world and stop the ${s.name} server.`),
+      );
+      address.addSubcommand((sub) =>
+        sub.setName(s.name).setDescription(`Show the address for the ${s.name} server.`),
+      );
+    }
+    cmds.push(start, stop, address);
+  }
+
+  if (media) {
+    cmds.push(new SlashCommandBuilder().setName('pause').setDescription('Pause the show.'));
+    cmds.push(new SlashCommandBuilder().setName('play').setDescription('Resume the show.'));
+  }
+
+  cmds.push(
+    new SlashCommandBuilder().setName('status').setDescription('Show the state of every target.'),
+  );
+
+  return cmds.map((c) => c.toJSON());
+}
 
 /** How an outcome reads at a glance. Maps to the brand palette, nothing more. */
 export type Tone = 'progress' | 'ok' | 'refused' | 'failed';

@@ -101,11 +101,21 @@ Satisfactory's self-signed loopback TLS, which `fetch` cannot be told to accept)
 native `fetch` (VLC's web interface is plain HTTP on loopback, so it needs no TLS
 module), and `--env-file` instead of dotenv. Adding one needs a `DECISIONS.md` entry.
 
+**Each Discord guild is a tenant, scoped to its own targets (004).** The orchestrator
+holds a `guildId → Tenant` map (`TENANTS`); a command registers per guild from only that
+tenant's targets, and routes only within the tenant its guild selects — one guild can
+never see or reach another's target. **Isolation is structural**: a handler is only ever
+handed its resolved tenant's maps, never a global one, so there is nothing to forget to
+filter. One orchestrator serves every tenant (Constitution II); **no tenant/target id
+enters the seam** (Constitution I) — the agent is untouched, which is what keeps off-box
+an additive future spec. Never route a command against anything but its own tenant's maps.
+
 **No fallback config.** Every environment variable is required and throws at boot
-naming itself. A missing/unknown `TARGET` would control the wrong target; an empty
-`AGENTS` map leaves the orchestrator with nothing to command; a missing/unknown
-`kind` would register the wrong verbs; a blank admin/VLC password is an open control
-interface; a missing stop bound silently removes a data-loss guarantee.
+naming itself. A missing/unknown `TARGET` would control the wrong target; an empty or
+malformed `TENANTS` (a duplicate guild, a tenant with no targets, the legacy `AGENTS`/
+`DISCORD_GUILD_ID` shape) leaves the orchestrator mis-scoped or with nothing to command;
+a missing/unknown `kind` would register the wrong verbs; a blank admin/VLC password is an
+open control interface; a missing stop bound silently removes a data-loss guarantee.
 
 ## Configuration
 
@@ -120,9 +130,13 @@ The orchestrator has one **`orchestrator/.env`**.
   therefore which target-specific values are required. Only that target's block is
   consulted — games read a game block + `STOP_TIMEOUT_MS`; `vlc` reads `VLC_BASE_URL`
   + `VLC_PASSWORD` and no stop bound.
-- **Orchestrator:** `AGENTS` is a JSON array of `{name, url, kind, publicPort?}` — one
-  entry per target (`kind` is `game` | `media`; a media entry has **no** `publicPort`,
-  a game entry requires one), replacing 001's single `AGENT_BASE_URL`. Plus
+- **Orchestrator:** `TENANTS` is a JSON array of `{guildId, name?, agents:[…]}` — **one
+  entry per Discord guild**, each `agents` list the per-target shape (`{name, url, kind,
+  publicPort?}`). Since 004 the orchestrator is **multi-tenant**: a guild sees and controls
+  **only its own** `agents`, never another guild's (isolation, keyed by `guildId`). One
+  bot serves every tenant. `TENANTS` replaces 001's flat `AGENTS` **and** the 003 stopgap's
+  `DISCORD_GUILD_ID` comma-list — both are rejected loudly at boot (migration is deliberate,
+  DECISIONS 021). A target may be **shared** across guilds or **exclusive** to one. Plus
   `FOLLOWUP_TIMEOUT_MS` (the US3 bound).
 
 Passwords, easily confused:
