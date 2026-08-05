@@ -226,9 +226,12 @@ are absent from the second and that no input in the second reaches the first's p
 - **FR-010**: The amendment in FR-009 MUST be recorded in `DECISIONS.md` — stating what it
   was chosen over — **before** implementation begins (Constitution V).
 - **FR-011**: The bans this feature does **not** touch MUST remain in force: no volume
-  control, no stop, and no OS-level termination of the player. These, and the narrowed content
-  ban of FR-009, MUST stay enforced by an **automated check that fails if a forbidden
-  capability reappears** — never left to human review.
+  control, no stop, and no OS-level termination of the player. The feature additionally
+  introduces **one new ban**: the system MUST NOT seek to an **absolute** position. Movement
+  through an item MUST be **relative only** — this is precisely the boundary FR-009's narrowing
+  creates, and the only one this feature adds. These three, the new absolute-seek ban, and the
+  narrowed content ban of FR-009, MUST stay enforced by an **automated check that fails if a
+  forbidden capability reappears** — never left to human review.
 - **FR-012**: The system MUST still not stream, record, or relay content anywhere (003
   FR-011). Only control instructions travel.
 
