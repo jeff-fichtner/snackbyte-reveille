@@ -15,31 +15,31 @@
   "card": {
     "id": "86bb8p9wb",
     "hash": "sha256:6c5edbd765d11aeac1d7f19405b9d222835d0406cffa05981c8e7b6fcc406006",
-    "provenanceHash": "sha256:1e5378e43e470bbef5265df252c28a0204e126f6801a4e4e9b7d8ce3340359db"
+    "provenanceHash": "sha256:a1937f5e6b41eee4fe14cebb0a3b60a30e05775c121a951719dbb4cf05cf6fff"
   },
   "userStories": [
     {
-      "us": "US3",
-      "id": "86bb8paw2",
-      "hash": "sha256:acf56161c207e958fc629b355f94ec50441c54a9edd1e20fc6cb17373440fde1",
-      "dependsOn": [
-        "US1",
-        "US2"
-      ]
+      "us": "US1",
+      "id": "86bb8pavt",
+      "hash": "sha256:04f786387669d43f28b7fc863c339d2df28edc866c204bd3c77719fc2f1bd8ae",
+      "dependsOn": []
     },
     {
       "us": "US2",
       "id": "86bb8pavy",
-      "hash": "sha256:413977b4fe7392bcb63f069d783480b89c933b1f4a0c79d66fa0112b6c651964",
+      "hash": "sha256:e1a3ec584b46c8457077f071c7f8bd70cc2da6506e7a3125dfd5b5eb3b641aed",
       "dependsOn": [
         "US1"
       ]
     },
     {
-      "us": "US1",
-      "id": "86bb8pavt",
-      "hash": "sha256:38b7aa5d09819fd70651bd9c3f5ab37246ede9533e1c7e027fa73adaeabe0ac6",
-      "dependsOn": []
+      "us": "US3",
+      "id": "86bb8paw2",
+      "hash": "sha256:503c8244b02a093f51528e6924ae3373b841f7cd920e38eff3ebe77d8ddc5945",
+      "dependsOn": [
+        "US1",
+        "US2"
+      ]
     }
   ],
   "lifecycle": {

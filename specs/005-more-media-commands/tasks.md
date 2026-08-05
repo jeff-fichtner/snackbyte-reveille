@@ -218,3 +218,11 @@ delivered with next/previous entirely unbuilt.
 - **The 30-second default lives in exactly one place** (the orchestrator). The agent fails loud on a missing `seconds` — a member omitting an argument is a documented choice; the orchestrator omitting the parameter is a bug.
 - **No new configuration.** No environment variable, no `.env.example` change, no new network exposure — the control path is loopback end to end, so there is nothing to forward and no firewall rule (FR-017).
 - **`paused` is not a refusal.** Only `stopped` is. The item is loaded, so the player can act; what it does next is its business and is never claimed.
+
+---
+
+## Phase 7: Convergence
+
+Appended by `/speckit-converge`. One gap between stated intent and the code as built.
+
+- [ ] T027 Stop `POST /seek` silently altering a large `seconds` per FR-004 (contradicts) — `agent/src/server.ts` `handleSeek` validates the amount with `/^-?\d+$/` and then round-trips it through `Number`, so a value beyond `Number.MAX_SAFE_INTEGER` is silently changed (`9007199254740993` → the adapter emits `val=%2B9007199254740992`) and a value at or above 1e21 is emitted in exponential notation (`val=%2B1e+21`), which is malformed. FR-004 requires an explicitly supplied amount be "honored **exactly as given**". Fix by failing loud on an unrepresentable value (add a `Number.isSafeInteger` check → **400** naming `seconds`) or by carrying the validated digit string through to the adapter without a lossy `Number` round-trip. **This is not a bound in FR-005's sense** — FR-005 forbids clamping the seek *distance* against the item; refusing an integer the transport cannot represent is fail-loud on unrepresentable input, which the no-silent-wrong-behaviour rule requires. Unreachable via Discord (integer options are capped at ±2^53) but directly reachable at the seam, which `quickstart.md` §2 probes with `curl`. Cover it in `agent/src/server.test.ts` beside the existing 400 cases.
