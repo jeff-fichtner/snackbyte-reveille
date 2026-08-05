@@ -27,6 +27,12 @@ protected for later is that putting a target on a different machine becomes a co
 change (a different address plus the authentication a separate future spec will add), never
 a rewrite of this one — because the seam is kept clean here.
 
+## Clarifications
+
+### Session 2026-08-04
+
+- Q: Can a single target be controlled from more than one guild (shared), or must each target belong to exactly one guild (exclusive)? → A: **Both** — the operator decides per target. Sharing is allowed but not required: a target may appear in several guilds' sets (shared) or exactly one (exclusive), and both are first-class. Isolation (a guild reaches only what is in its own set) holds identically regardless of how many sets a target belongs to.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - A guild controls only its own targets (Priority: P1) 🎯 MVP
@@ -139,6 +145,11 @@ the existing tenants unchanged.
   target stays loopback-local to the orchestrator's host, and no inbound network exposure is
   introduced. Cross-machine targets and the authentication they require are a separate, future
   capability explicitly out of scope here.
+- **FR-014**: The system MUST support a target being **shared** across guilds (listed in more
+  than one guild's set) OR **exclusive** to one — both are valid, decided per target by the
+  operator (Clarifications 2026-08-04). The isolation guarantee (FR-002) MUST hold identically
+  in either case: a guild reaches only the targets in its own set, whether or not any of those
+  targets are also in another guild's set.
 
 ### Key Entities
 
@@ -182,10 +193,12 @@ the existing tenants unchanged.
   is `watson` and the targets are the games and VLC already there. The tenancy model is built
   so that a future target on a *different* machine is reachable by configuring a different
   address (plus authentication, a separate spec) — but this feature adds neither.
-- **A target may appear in one or more tenants' sets.** Isolation means a guild can reach only
-  the targets in its own set; it does **not** mean a target belongs to exactly one guild. This
-  accommodates a deliberately shared target without weakening the "can't reach what isn't
-  yours" guarantee.
+- **Both shared and exclusive targets are supported, per target, at the operator's choice**
+  (Clarifications 2026-08-04). A target may appear in one or more tenants' sets; isolation
+  means a guild can reach only the targets in its own set, and does **not** require that a
+  target belong to exactly one guild. So the operator can make a target shared (list it in
+  several guilds) or exclusive (list it in one) — both without weakening the "can't reach
+  what isn't yours" guarantee.
 - **Target names are scoped to their tenant.** A name identifies a target within a guild, not
   globally; two tenants may reuse a name for different agents. An agent's **address** remains
   globally unique and is its identity.
