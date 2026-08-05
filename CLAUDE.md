@@ -13,8 +13,9 @@ first, and since 003 anything else a host can toggle. Discord slash commands
 `/start`, `/stop`, `/status`, `/address` control **two** dedicated game servers —
 Palworld and Satisfactory, each named as a subcommand — and `/pause`, `/play`,
 `/next`, `/previous`, `/forward [seconds]`, `/back [seconds]` control **one** media
-player, VLC (bare commands: there is one media target). A human decides when; that is
-the whole policy. A second game was a new *row*, not a new kind (DECISIONS 002). VLC
+player, VLC (bare commands: there is one media target). `/status` reports every target's
+state and `/help` lists the commands that work in the asking guild. A human decides when;
+that is the whole policy. A second game was a new *row*, not a new kind (DECISIONS 002). VLC
 was a new *kind* — a second adapter kind (`media`) alongside `game`, with its own
 verbs — but still one agent at one more address (DECISIONS 017). 005 added four more
 media commands without adding a kind, a component, or a dependency.
@@ -23,6 +24,17 @@ media commands without adding a kind, a component, or a dependency.
 a signed magnitude and share `POST /seek`; the orchestrator negates for `/back`. That
 is why `/back -30` seeks *forward* — the amount is passed through exactly as given, and
 the reply says so rather than hiding it (FR-005).
+
+**`/help` lists what the asking guild can run, and cannot go stale (006).** It is the
+first command that contacts **no agent at all** — so it never defers, is answered before
+`deferReply()` in `index.ts` (a deferred reply can't become ephemeral), and reads the same
+whether every target is running or switched off. It describes *availability*, never
+readiness; `/status` answers readiness. Crucially it is a second **view** of the command
+surface, not a second **description** of it: `buildCommandGroups` is the single source and
+both registration and the listing are pure derivations of it, so a command cannot be listed
+that isn't registered, or described differently. **Never add a name→group lookup table or
+hand-written help text** — that is the second copy the feature exists to remove, and 005
+already shipped that bug once (`vlc.ts` declared "no seek" after seek was implemented in it).
 
 ## Layout
 
