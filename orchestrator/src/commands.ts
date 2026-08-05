@@ -33,10 +33,36 @@ export const DEFAULT_SEEK_SECONDS = 30;
  * `setDefaultMemberPermissions` is deliberately NOT set — any member of the (private,
  * trusted) guild may issue any command (FR-001); trust is the guild, now per tenant.
  */
-export function buildCommands(servers: readonly ControlledServer[]) {
+/**
+ * One labelled bundle of commands that act on one kind of target (006).
+ *
+ * A group is only ever *constructed* when it has contents, so an empty group cannot
+ * exist and therefore cannot be rendered — the guarantee lives here, not in whatever
+ * displays it (FR-022).
+ */
+export interface CommandGroup {
+  readonly label: string;
+  readonly commands: readonly SlashCommandBuilder[];
+}
+
+/**
+ * **The single source: the one function that decides what a guild can run.**
+ *
+ * Registration and `/help` are both pure derivations of this (006, contracts
+ * `command-surface.md`). That is not tidiness — it is the whole of FR-007/FR-008. If the
+ * listing were a second *description* of these commands rather than a second *view* of
+ * them, the two could disagree, and this repo has already shipped that exact bug: 005's
+ * `agent/src/vlc.ts` declared "no seek" in its own header after seek was implemented in
+ * it, four lines away, and drifted anyway.
+ *
+ * The grouping therefore has to be decided **here**, while the kind is known. Recovering
+ * it downstream would mean a name→group lookup table, which is the second copy all over
+ * again — it would silently mis-file the first command the next feature adds.
+ */
+export function buildCommandGroups(servers: readonly ControlledServer[]): CommandGroup[] {
   const games = servers.filter((s) => s.kind === 'game');
   const media = servers.find((s) => s.kind === 'media');
-  const cmds: SlashCommandBuilder[] = [];
+  const groups: CommandGroup[] = [];
 
   if (games.length > 0) {
     const start = new SlashCommandBuilder().setName('start').setDescription('Start a game server.');
@@ -55,28 +81,27 @@ export function buildCommands(servers: readonly ControlledServer[]) {
         sub.setName(s.name).setDescription(`Show the address for the ${s.name} server.`),
       );
     }
-    cmds.push(start, stop, address);
+    groups.push({ label: 'Games', commands: [start, stop, address] });
   }
 
   if (media) {
-    cmds.push(new SlashCommandBuilder().setName('pause').setDescription('Pause the show.'));
-    cmds.push(new SlashCommandBuilder().setName('play').setDescription('Resume the show.'));
+    const mediaCmds: SlashCommandBuilder[] = [
+      new SlashCommandBuilder().setName('pause').setDescription('Pause the show.'),
+      new SlashCommandBuilder().setName('play').setDescription('Resume the show.'),
+      // Blind stepping (005). Bare and argument-free — a step needs to know nothing, and
+      // the description must not imply Reveille can see what is queued (FR-002).
+      new SlashCommandBuilder().setName('next').setDescription('Skip to the next thing.'),
+      new SlashCommandBuilder().setName('previous').setDescription('Go back to the previous thing.'),
+    ];
 
     // The two seek commands, bare like pause/play, each with ONE optional amount so the
     // common case is argument-free (FR-001). Built in two steps rather than chained:
-    // `addIntegerOption` narrows the builder's type, and `cmds` holds SlashCommandBuilder.
+    // `addIntegerOption` narrows the builder's type, and the array holds SlashCommandBuilder.
     //
-    // NO `setMinValue`/`setMaxValue`, deliberately. FR-005 forbids bounding the amount, and
-    // reaching for those two methods is the obvious instinct — which is exactly why
+    // NO `setMinValue`/`setMaxValue`, deliberately. 005 FR-005 forbids bounding the amount,
+    // and reaching for those two methods is the obvious instinct — which is exactly why
     // `commands.test.ts` asserts their absence. A description must not name content either
     // (FR-002): these say what they do, never what is playing.
-    // Blind stepping (005). Bare and argument-free — a step needs to know nothing, and
-    // the description must not imply Reveille can see what is queued (FR-002).
-    cmds.push(new SlashCommandBuilder().setName('next').setDescription('Skip to the next thing.'));
-    cmds.push(
-      new SlashCommandBuilder().setName('previous').setDescription('Go back to the previous thing.'),
-    );
-
     for (const [name, verb] of [['forward', 'forward'], ['back', 'back']] as const) {
       const cmd = new SlashCommandBuilder()
         .setName(name)
@@ -87,15 +112,34 @@ export function buildCommands(servers: readonly ControlledServer[]) {
           .setDescription(`How many seconds to jump ${verb} (default ${DEFAULT_SEEK_SECONDS}).`)
           .setRequired(false),
       );
-      cmds.push(cmd);
+      mediaCmds.push(cmd);
     }
+
+    groups.push({ label: 'Media', commands: mediaCmds });
   }
 
-  cmds.push(
-    new SlashCommandBuilder().setName('status').setDescription('Show the state of every target.'),
-  );
+  // Commands that belong to no target kind. Always present: every tenant has at least one
+  // target, so these always apply.
+  groups.push({
+    label: 'Everything',
+    commands: [
+      new SlashCommandBuilder().setName('status').setDescription('Show the state of every target.'),
+    ],
+  });
 
-  return cmds.map((c) => c.toJSON());
+  return groups;
+}
+
+/**
+ * The Discord registration payload — a **thin derivation** of {@link buildCommandGroups}.
+ *
+ * It flattens and serialises; it decides nothing. Anything that changes what a guild can
+ * run belongs in the builder above, so that registration and `/help` cannot drift apart.
+ */
+export function buildCommands(servers: readonly ControlledServer[]) {
+  return buildCommandGroups(servers)
+    .flatMap((g) => g.commands)
+    .map((c) => c.toJSON());
 }
 
 /** How an outcome reads at a glance. Maps to the brand palette, nothing more. */

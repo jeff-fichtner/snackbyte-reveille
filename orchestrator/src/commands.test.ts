@@ -14,6 +14,7 @@ import {
   toEmbed,
   routeToAgent,
   buildCommands,
+  buildCommandGroups,
   DEFAULT_SEEK_SECONDS,
 } from './commands.ts';
 import type { ControlledServer } from './config.ts';
@@ -558,6 +559,74 @@ test('nothing self-issues — no media path schedules a command (FR-008)', () =>
     1,
     'armFollowup must be called from exactly one place (the game start path)',
   );
+});
+
+// ── 006: the single source ───────────────────────────────────────────────────
+
+/** A command's shape, ignoring description text — that is asserted elsewhere, derived. */
+const shapeOf = (c: Cmd) => `${c.name}(${(c.options ?? []).map((o) => o.name).join(',')})`;
+
+test('buildCommands is exactly the flattened groups — registration decides nothing (006)', () => {
+  // The structural link that makes FR-007 hold: the registration payload is not built
+  // alongside the groups, it is built FROM them. If someone later adds a command directly
+  // to buildCommands, this fails.
+  for (const servers of [
+    TENANT_A,
+    [{ name: 'vlc', baseUrl: 'http://x', kind: 'media' }] as ControlledServer[],
+    [{ name: 'palworld', baseUrl: 'http://x', kind: 'game', publicPort: 8211 }] as ControlledServer[],
+  ]) {
+    const fromGroups = buildCommandGroups(servers).flatMap((g) => g.commands.map((c) => c.toJSON().name));
+    const registered = (buildCommands(servers) as unknown as Cmd[]).map((c) => c.name);
+    assert.deepEqual(registered, fromGroups, 'registration must be a pure derivation of the groups');
+  }
+});
+
+test('the refactor did not change what registers — same commands, same order, same options', () => {
+  // A regression fence around T001. Names, ORDER and option/subcommand names are asserted;
+  // description text deliberately is not, since asserting it here would be the very second
+  // copy this feature exists to remove.
+  const gameAndMedia = (buildCommands(TENANT_A) as unknown as Cmd[]).map(shapeOf);
+  assert.deepEqual(gameAndMedia, [
+    'start(palworld)',
+    'stop(palworld)',
+    'address(palworld)',
+    'pause()',
+    'play()',
+    'next()',
+    'previous()',
+    'forward(seconds)',
+    'back(seconds)',
+    'status()',
+  ]);
+
+  const mediaOnly = (buildCommands([
+    { name: 'vlc', baseUrl: 'http://x', kind: 'media' },
+  ]) as unknown as Cmd[]).map(shapeOf);
+  assert.deepEqual(mediaOnly, [
+    'pause()', 'play()', 'next()', 'previous()', 'forward(seconds)', 'back(seconds)', 'status()',
+  ]);
+
+  const gameOnly = (buildCommands([
+    { name: 'palworld', baseUrl: 'http://x', kind: 'game', publicPort: 8211 },
+  ]) as unknown as Cmd[]).map(shapeOf);
+  assert.deepEqual(gameOnly, ['start(palworld)', 'stop(palworld)', 'address(palworld)', 'status()']);
+});
+
+test('a group is never constructed empty, so it can never render empty (FR-022)', () => {
+  const mediaOnly = buildCommandGroups([{ name: 'vlc', baseUrl: 'http://x', kind: 'media' }]);
+  const gameOnly = buildCommandGroups([
+    { name: 'palworld', baseUrl: 'http://x', kind: 'game', publicPort: 8211 },
+  ]);
+
+  for (const groups of [mediaOnly, gameOnly, buildCommandGroups(TENANT_A)]) {
+    for (const g of groups) {
+      assert.ok(g.commands.length > 0, `group "${g.label}" exists but is empty`);
+    }
+  }
+  // The absent kind produces no group at all — not a group with nothing in it.
+  assert.deepEqual(mediaOnly.map((g) => g.label), ['Media', 'Everything']);
+  assert.deepEqual(gameOnly.map((g) => g.label), ['Games', 'Everything']);
+  assert.deepEqual(buildCommandGroups(TENANT_A).map((g) => g.label), ['Games', 'Media', 'Everything']);
 });
 
 // ── 005 / US3: the new surface inherits 004's isolation ──────────────────────
