@@ -66,6 +66,16 @@ export class AgentClient {
     return this.#request('POST', `/seek?seconds=${seconds}`);
   }
 
+  /** Step to the next playlist item (005, media agents only). No parameters — a blind step. */
+  next(): Promise<AgentResult> {
+    return this.#request('POST', '/next');
+  }
+
+  /** Step to the previous playlist item (005, media agents only). */
+  previous(): Promise<AgentResult> {
+    return this.#request('POST', '/previous');
+  }
+
   /** Read-only state, for `/status` and the US3 follow-up. Never mutates. */
   status(): Promise<AgentResult> {
     return this.#request('GET', '/status');

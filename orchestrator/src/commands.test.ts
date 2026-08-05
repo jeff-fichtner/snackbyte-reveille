@@ -10,6 +10,7 @@ import {
   describePause,
   describeResume,
   describeSeek,
+  describeStep,
   toEmbed,
   routeToAgent,
   buildCommands,
@@ -357,7 +358,7 @@ test('buildCommands scopes a guild to ONLY its own targets (FR-003)', () => {
   const cmds = buildCommands(TENANT_A) as unknown as Cmd[];
   assert.deepEqual(
     cmds.map((c) => c.name).sort(),
-    ['address', 'back', 'forward', 'pause', 'play', 'start', 'status', 'stop'],
+    ['address', 'back', 'forward', 'next', 'pause', 'play', 'previous', 'start', 'status', 'stop'],
   );
   // The acting game verbs name palworld and nothing else — no other tenant's game leaks in.
   for (const verb of ['start', 'stop', 'address']) {
@@ -368,7 +369,10 @@ test('buildCommands scopes a guild to ONLY its own targets (FR-003)', () => {
 
 test('buildCommands: a media-only tenant gets the media verbs + status, no game verbs', () => {
   const cmds = buildCommands([{ name: 'vlc', baseUrl: 'http://x', kind: 'media' }]) as unknown as Cmd[];
-  assert.deepEqual(cmds.map((c) => c.name).sort(), ['back', 'forward', 'pause', 'play', 'status']);
+  assert.deepEqual(
+    cmds.map((c) => c.name).sort(),
+    ['back', 'forward', 'next', 'pause', 'play', 'previous', 'status'],
+  );
 });
 
 test('buildCommands: a game-only tenant gets start/stop/address/status, no pause/play', () => {
@@ -480,6 +484,58 @@ test('every seek branch produces a non-empty reply, and none names content (SC-0
       assert.doesNotMatch(t, /\b(playlist|episode|file|track|title|chapter)\b/i, `"${t}" names content`);
     }
   }
+});
+
+test('/next and /previous are bare and carry NO options at all (FR-001)', () => {
+  const cmds = buildCommands([{ name: 'vlc', baseUrl: 'http://x', kind: 'media' }]) as unknown as Cmd[];
+  for (const name of ['next', 'previous']) {
+    const cmd = cmds.find((c) => c.name === name);
+    assert.ok(cmd, `/${name} must be registered for a media tenant`);
+    assert.deepEqual(cmd.options ?? [], [], `/${name} is a blind step — it takes no argument`);
+  }
+});
+
+test('a step reply reports what was ISSUED and never names the item (FR-002, FR-003)', () => {
+  const next = describeStep(reached(200, { state: 'playing' }), 'next');
+  const previous = describeStep(reached(200, { state: 'playing' }), 'previous');
+
+  assert.equal(next.tone, 'ok');
+  assert.match(next.text, /next/i);
+  assert.match(previous.text, /previous/i);
+  for (const r of [next, previous]) {
+    assert.doesNotMatch(said(r), /\b(now playing|episode|file|track|title|item \d|playlist)\b/i);
+    assert.doesNotMatch(said(r), /\b(now at|advanced to|moved to)\b/i);
+  }
+});
+
+test('at a playlist boundary NO special message is invented and no result is claimed (US2 AC3)', () => {
+  // The agent cannot tell the orchestrator it was at the end — knowing that would require
+  // reading the playlist (FR-002), and M0 §8 measured VLC silently WRAPPING there. So the
+  // end-of-playlist case is indistinguishable from any other success, by design: a 200 is
+  // a 200, and there is exactly one wording for it.
+  const middle = describeStep(reached(200, { state: 'playing' }), 'next');
+  const atEnd = describeStep(reached(200, { state: 'playing' }), 'next');
+  assert.deepEqual(atEnd, middle, 'no branch may exist that only fires at a boundary');
+  assert.doesNotMatch(said(atEnd), /\b(last|end of|first|beginning|wrapped|no more)\b/i);
+});
+
+test('a step refusal matches pause’s terms, and every branch replies non-empty (SC-003, SC-004)', () => {
+  const refused = describeStep(reached(409, { state: 'stopped' }), 'next');
+  assert.equal(refused.tone, describePause(reached(409, { state: 'stopped' })).tone);
+  assert.match(refused.text, /nothing is playing/i);
+
+  const branches = [
+    describeStep(reached(200, { state: 'playing' }), 'next'),
+    describeStep(reached(200, { state: 'paused' }), 'previous'),
+    refused,
+    describeStep(reached(500, { state: 'error', message: 'player unreachable' }), 'next'),
+    describeStep({ reached: false, reason: 'ECONNREFUSED' }, 'previous'),
+  ];
+  for (const r of branches) assert.ok(r.text.trim().length > 0);
+
+  // Unreachable reads as unreachable, never as a playback state (FR-009).
+  const unreached = describeStep({ reached: false, reason: 'ECONNREFUSED' }, 'next');
+  assert.match(unreached.text, /could not reach the host/i);
 });
 
 test('nothing self-issues — no media path schedules a command (FR-008)', () => {

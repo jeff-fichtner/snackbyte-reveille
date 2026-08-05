@@ -70,6 +70,13 @@ export function buildCommands(servers: readonly ControlledServer[]) {
     // reaching for those two methods is the obvious instinct — which is exactly why
     // `commands.test.ts` asserts their absence. A description must not name content either
     // (FR-002): these say what they do, never what is playing.
+    // Blind stepping (005). Bare and argument-free — a step needs to know nothing, and
+    // the description must not imply Reveille can see what is queued (FR-002).
+    cmds.push(new SlashCommandBuilder().setName('next').setDescription('Skip to the next thing.'));
+    cmds.push(
+      new SlashCommandBuilder().setName('previous').setDescription('Go back to the previous thing.'),
+    );
+
     for (const [name, verb] of [['forward', 'forward'], ['back', 'back']] as const) {
       const cmd = new SlashCommandBuilder()
         .setName(name)
@@ -393,6 +400,28 @@ export function describeSeek(result: AgentResult, seconds: number): Reply {
 }
 
 /**
+ * Turn a media agent's `/next` or `/previous` result into what the channel sees (005).
+ *
+ * **Never names the item** — not the one left, not the one arrived at (FR-002) — and
+ * **claims no result**. There is deliberately no special message for the end of the
+ * playlist: knowing you were at the end would require reading the playlist, and M0 §8
+ * measured VLC wrapping there anyway. "Issued" is the whole truth available.
+ */
+export function describeStep(result: AgentResult, step: 'next' | 'previous'): Reply {
+  if (!result.reached) return unreachable(result.reason);
+  const { status, body } = result;
+  const word = step === 'next' ? 'next' : 'previous';
+
+  if (status === 200) return { tone: 'ok', text: `Skipping to the ${word} thing.` };
+  if (status === 409) return { tone: 'refused', text: 'Nothing is playing — nothing to skip.' };
+  return {
+    tone: 'failed',
+    text: `Could not skip to the ${word} thing.`,
+    footnote: body.message ?? `Agent returned HTTP ${status}.`,
+  };
+}
+
+/**
  * `/status` — every server's state at once, read-only (US2). Queries all agents in
  * parallel; each server is independent, so one unreachable agent does not stop the
  * others being reported. Names no single server — it reports them all.
@@ -503,6 +532,22 @@ export async function handleSeek(
   await interaction.editReply({
     embeds: [toEmbed(describeSeek(await routed.agent.seek(seconds), seconds), serverName)],
   });
+}
+
+/** `/next` and `/previous` — step blindly through this tenant's media playlist (005). */
+export async function handleStep(
+  interaction: ChatInputCommandInteraction,
+  agents: ReadonlyMap<string, AgentClient>,
+  serverName: string,
+  step: 'next' | 'previous',
+): Promise<void> {
+  const routed = routeToAgent(serverName, agents);
+  if ('reply' in routed) {
+    await interaction.editReply({ embeds: [toEmbed(routed.reply, serverName)] });
+    return;
+  }
+  const result = await (step === 'next' ? routed.agent.next() : routed.agent.previous());
+  await interaction.editReply({ embeds: [toEmbed(describeStep(result, step), serverName)] });
 }
 
 /** `/play` — resume the one media player (003). */

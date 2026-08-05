@@ -136,6 +136,31 @@ async function handleResume(adapter: MediaAdapter): Promise<Outcome> {
 }
 
 /**
+ * POST /next and POST /previous — step blindly to the adjacent playlist item (005).
+ *
+ * No parameters: a blind step carries none, which is what makes it permitted. Same shape
+ * and same tier as `/pause` — `stopped` is refused honestly, because M0 §9 measured both
+ * commands no-opping silently with nothing loaded while still answering 200.
+ *
+ * A `200` here means the step was **issued**. It is not a claim that the item changed:
+ * M0 §8 measured VLC wrapping at the playlist boundary, and checking for that would
+ * require knowing the playlist (FR-002).
+ */
+async function handleStep(adapter: MediaAdapter, step: 'next' | 'previous'): Promise<Outcome> {
+  const state = await adapter.getState();
+  if (state === 'stopped') {
+    return { status: 409, body: { state, message: 'Nothing is playing.' } };
+  }
+  try {
+    await (step === 'next' ? adapter.next() : adapter.previous());
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { status: 500, body: { state: 'error', message } };
+  }
+  return { status: 200, body: { state } };
+}
+
+/**
  * POST /seek?seconds=<signed integer> — move the position relative to now (005).
  *
  * `seconds` is **required and has no default here**. The 30-second default belongs to the
@@ -216,6 +241,10 @@ async function route(req: IncomingMessage, adapter: Adapter): Promise<Outcome> {
       return await handleResume(adapter);
     case '/seek':
       return await handleSeek(adapter, req);
+    case '/next':
+      return await handleStep(adapter, 'next');
+    case '/previous':
+      return await handleStep(adapter, 'previous');
     default:
       return { status: 404, body: { state: 'error', message: `No such endpoint: ${path}` } };
   }

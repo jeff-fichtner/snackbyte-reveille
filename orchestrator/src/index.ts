@@ -30,6 +30,7 @@ import {
   handlePause,
   handleResume,
   handleSeek,
+  handleStep,
   DEFAULT_SEEK_SECONDS,
 } from './commands.ts';
 import { armFollowup, shouldFollowUp } from './followup.ts';
@@ -134,6 +135,16 @@ async function handle(interaction: ChatInputCommandInteraction, rt: TenantRuntim
       return interaction.commandName === 'pause'
         ? await handlePause(interaction, rt.agents, rt.mediaTarget.name)
         : await handleResume(interaction, rt.agents, rt.mediaTarget.name);
+    }
+
+    // `/next` and `/previous` (005) — bare, argument-free blind steps, in the same
+    // resolved-tenant path as every other media command.
+    if (interaction.commandName === 'next' || interaction.commandName === 'previous') {
+      if (rt.mediaTarget === undefined) {
+        await interaction.editReply('No media player is configured for this server.');
+        return;
+      }
+      return await handleStep(interaction, rt.agents, rt.mediaTarget.name, interaction.commandName);
     }
 
     // `/forward [seconds]` and `/back [seconds]` (005) — bare like pause/play, inside the

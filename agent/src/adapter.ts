@@ -42,6 +42,14 @@ export interface MediaAdapter {
    * lives in the sign, not in the verb, which is why there is one method and not two.
    */
   seek(seconds: number): Promise<void>;
+  /**
+   * Step blindly to the next playlist item (005). Carries no id, index, or count, and
+   * MUST NOT inspect the playlist or check whether a next item exists — a blind step is
+   * what makes it permitted at all (DECISIONS 022).
+   */
+  next(): Promise<void>;
+  /** Step blindly to the previous item. Mirror of {@link MediaAdapter.next}. */
+  previous(): Promise<void>;
 }
 
 /** Either kind of adapter. The `kind` tag is how the server picks the verb set. */

@@ -29,6 +29,8 @@ function mediaStub(state: MediaState, over: Partial<MediaAdapter> = {}): MediaAd
     pause: async () => {},
     resume: async () => {},
     seek: async () => {},
+    next: async () => {},
+    previous: async () => {},
     ...over,
   };
 }
@@ -216,6 +218,101 @@ test('a game agent 404s /seek — the kinds never cross (FR-016)', async () => {
   const { base, close } = await startServer(stub('running'));
   try {
     assert.equal((await fetch(`${base}/seek?seconds=30`, { method: 'POST' })).status, 404);
+  } finally {
+    await close();
+  }
+});
+
+test('POST /next and /previous step, refuse on stopped, and read no parameters (005)', async () => {
+  // Acts when the item is loaded — playing AND paused. Paused is not a refusal: the item
+  // is loaded, so the player can act (M0 §7 measured a step resuming a paused player).
+  for (const state of ['playing', 'paused'] as const) {
+    const calls: string[] = [];
+    const { base, close } = await startServer(
+      mediaStub(state, {
+        next: async () => { calls.push('next'); },
+        previous: async () => { calls.push('previous'); },
+      }),
+    );
+    try {
+      for (const verb of ['next', 'previous']) {
+        const res = await fetch(`${base}/${verb}`, { method: 'POST' });
+        assert.equal(res.status, 200, `/${verb} must act while ${state}`);
+        // 200 means ISSUED — the body reports the state we read, never a claim that the
+        // item changed. M0 §8: VLC wraps at the boundary and we never look.
+        assert.deepEqual(await body(res), { state });
+      }
+      assert.deepEqual(calls, ['next', 'previous']);
+
+      // A blind step carries no parameters. Anything in the query is ignored outright —
+      // there is nothing for a caller to smuggle in.
+      calls.length = 0;
+      assert.equal((await fetch(`${base}/next?plid=7&index=2`, { method: 'POST' })).status, 200);
+      assert.deepEqual(calls, ['next'], 'query parameters must not change what a step does');
+    } finally {
+      await close();
+    }
+  }
+
+  // Nothing loaded: refused in the SAME terms as /pause and /seek (SC-003). M0 §9 measured
+  // both stepping commands no-opping silently while still answering 200, so forwarding
+  // blind would report success for an action that did not happen.
+  const stoppedSrv = await startServer(mediaStub('stopped'));
+  try {
+    for (const verb of ['next', 'previous']) {
+      const res = await fetch(`${stoppedSrv.base}/${verb}`, { method: 'POST' });
+      assert.equal(res.status, 409);
+      assert.deepEqual(await body(res), { state: 'stopped', message: 'Nothing is playing.' });
+    }
+  } finally {
+    await stoppedSrv.close();
+  }
+
+  const brokenSrv = await startServer(
+    mediaStub('playing', { next: async () => { throw new Error('player unreachable'); } }),
+  );
+  try {
+    const res = await fetch(`${brokenSrv.base}/next`, { method: 'POST' });
+    assert.equal(res.status, 500);
+    assert.equal((await body(res)).state, 'error');
+  } finally {
+    await brokenSrv.close();
+  }
+
+  // The kinds never cross (FR-016).
+  const game = await startServer(stub('running'));
+  try {
+    assert.equal((await fetch(`${game.base}/next`, { method: 'POST' })).status, 404);
+    assert.equal((await fetch(`${game.base}/previous`, { method: 'POST' })).status, 404);
+  } finally {
+    await game.close();
+  }
+});
+
+test('/next runs ON the command mutex, while /status still answers (FR-021)', async () => {
+  let enteredNext = (): void => {};
+  let releaseNext = (): void => {};
+  const nextEntered = new Promise<void>((resolve) => { enteredNext = resolve; });
+  const nextGate = new Promise<void>((resolve) => { releaseNext = resolve; });
+
+  const { base, close } = await startServer(
+    mediaStub('playing', { next: async () => { enteredNext(); await nextGate; } }),
+  );
+  try {
+    const first = fetch(`${base}/next`, { method: 'POST' });
+    await nextEntered;
+
+    let secondSettled = false;
+    const second = fetch(`${base}/previous`, { method: 'POST' }).then((r) => { secondSettled = true; return r; });
+    await new Promise((r) => setTimeout(r, 150));
+    assert.equal(secondSettled, false, '/previous must wait for the in-flight /next');
+
+    const statusRes = await fetch(`${base}/status`, { signal: AbortSignal.timeout(3_000) });
+    assert.equal(statusRes.status, 200, '/status was blocked behind the in-flight /next');
+
+    releaseNext();
+    assert.equal((await first).status, 200);
+    assert.equal((await second).status, 200);
   } finally {
     await close();
   }

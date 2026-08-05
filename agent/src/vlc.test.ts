@@ -37,14 +37,20 @@ test('no content SELECTION, playlist manipulation, or volume control (FR-004, na
     /pl_empty\b/, // clear the playlist
     /pl_delete\b/, // remove an item
     /pl_jump\b/, // jump to a NOMINATED item — the sharpest contrast with pl_next
-    /pl_next\b/,
-    /pl_previous\b/,
     /pl_stop\b/, // stop is a lifecycle verb, not a pause
     /[?&]command=volume/, // volume
   ];
   for (const banned of forbidden) {
     assert.doesNotMatch(code, banned, `${banned} needs knowledge of content, which the adapter must not have`);
   }
+});
+
+test('blind stepping is REQUIRED; jumping to a nominated item stays banned (DECISIONS 022)', () => {
+  // The whole narrowed line in one test. `pl_next`/`pl_previous` need to know NOTHING —
+  // they are blind steps, so 005 permits them. `pl_jump` needs the playlist, so it stays
+  // forbidden (asserted in the ban list above). That contrast IS the new boundary.
+  assert.match(code, /pl_next\b/, 'stepping to the next item is permitted since DECISIONS 022');
+  assert.match(code, /pl_previous\b/, 'stepping to the previous item is permitted since DECISIONS 022');
 });
 
 test('seek is RELATIVE only — the absolute form is banned (FR-011, M0 §3)', () => {
@@ -113,6 +119,18 @@ test('seek sends the exact relative wire form M0 measured (M0 §2/§3/§4)', asy
   assert.equal(seen[1], '/requests/status.json?command=seek&val=-30');
   // Zero is still signed — an unsigned `val=0` would seek absolutely to the start.
   assert.equal(seen[2], '/requests/status.json?command=seek&val=%2B0');
+});
+
+test('next/previous send the bare step commands and NOTHING else (M0 §7)', async () => {
+  const seen = await captureRequests(async (adapter) => {
+    await adapter.next();
+    await adapter.previous();
+  });
+
+  // No id, no index, no count, no playlist read — a blind step carries no parameters at
+  // all. Anything appended here would be knowledge of content (FR-002).
+  assert.equal(seen[0], '/requests/status.json?command=pl_next');
+  assert.equal(seen[1], '/requests/status.json?command=pl_previous');
 });
 
 test('the request target is composed only from the configured (loopback) base URL', () => {

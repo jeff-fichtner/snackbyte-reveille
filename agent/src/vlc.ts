@@ -42,6 +42,15 @@ const RESUME_COMMAND = 'pl_forceresume';
  */
 const SEEK_COMMAND = 'seek';
 
+/**
+ * Blind playlist stepping (005). These take **no parameters** — that is precisely why
+ * they are permitted: a step needs to know nothing about what is loaded, while
+ * `pl_jump` (still banned) needs the playlist. That contrast is the line DECISIONS 022
+ * draws, and `vlc.test.ts` enforces both halves of it.
+ */
+const NEXT_COMMAND = 'pl_next';
+const PREVIOUS_COMMAND = 'pl_previous';
+
 /** How long to wait on the loopback web interface before treating it as unreachable. */
 const PROBE_TIMEOUT_MS = 2_000;
 
@@ -125,6 +134,24 @@ export async function seek(config: VlcConfig, seconds: number): Promise<void> {
 }
 
 /**
+ * Step to the next playlist item. Issues the command and nothing else — the playlist is
+ * never read, no item is counted or named, and no check is made that a next item exists.
+ *
+ * What happens next is the player's business and is neither inspected nor claimed: M0 §8
+ * measured VLC **wrapping** from the last item back to the first even with no `--loop`
+ * set, and §7 measured a step **resuming** a paused player. Both are recorded so replies
+ * stay honest, not so this code compensates for them (FR-003).
+ */
+export async function next(config: VlcConfig): Promise<void> {
+  await vlcFetch(config, NEXT_COMMAND);
+}
+
+/** Step to the previous item. Mirror of {@link next}. */
+export async function previous(config: VlcConfig): Promise<void> {
+  await vlcFetch(config, PREVIOUS_COMMAND);
+}
+
+/**
  * Bind the functions above to a config, presenting the target-agnostic
  * `MediaAdapter` the rest of the agent speaks (adapter.ts). No behaviour of its
  * own — it only closes over `config` so nothing upstream has to thread it, and
@@ -137,5 +164,7 @@ export function createVlcAdapter(config: VlcConfig): MediaAdapter {
     pause: () => pause(config),
     resume: () => resume(config),
     seek: (seconds: number) => seek(config, seconds),
+    next: () => next(config),
+    previous: () => previous(config),
   };
 }
