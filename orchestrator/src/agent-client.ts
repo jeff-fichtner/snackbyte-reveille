@@ -45,7 +45,17 @@ export class AgentClient {
     return this.#request('POST', '/stop');
   }
 
-  /** Read-only state, for `/status` (US2) and the US3 follow-up. Never mutates. */
+  /** Pause the media player (003, media agents only). */
+  pause(): Promise<AgentResult> {
+    return this.#request('POST', '/pause');
+  }
+
+  /** Resume the media player (003, media agents only). */
+  play(): Promise<AgentResult> {
+    return this.#request('POST', '/play');
+  }
+
+  /** Read-only state, for `/status` and the US3 follow-up. Never mutates. */
   status(): Promise<AgentResult> {
     return this.#request('GET', '/status');
   }

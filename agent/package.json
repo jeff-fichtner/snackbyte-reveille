@@ -16,6 +16,7 @@
   "scripts": {
     "start:palworld": "node --env-file=.env.palworld src/index.ts",
     "start:satisfactory": "node --env-file=.env.satisfactory src/index.ts",
+    "start:vlc": "node --env-file=.env.vlc src/index.ts",
     "typecheck": "tsc -p tsconfig.json",
     "test": "node --test \"src/**/*.test.ts\""
   }

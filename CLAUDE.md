@@ -8,17 +8,21 @@ chosen and why. The rules those decisions must not violate are in
 
 ## What this is
 
-An on-demand control plane for self-hosted game servers. Discord slash commands
-`/start`, `/stop`, `/status`, and `/address` control **two** dedicated servers —
-Palworld and Satisfactory — each named as a subcommand. A human decides when; that
-is the whole policy. A second game was a new *row*, not a new kind: one more agent
-at one more address in configuration (DECISIONS 002).
+An on-demand control plane for **controllable targets on a host** — game servers
+first, and since 003 anything else a host can toggle. Discord slash commands
+`/start`, `/stop`, `/status`, `/address` control **two** dedicated game servers —
+Palworld and Satisfactory, each named as a subcommand — and `/pause`, `/play`
+control **one** media player, VLC (bare commands: there is one media target). A
+human decides when; that is the whole policy. A second game was a new *row*, not a
+new kind (DECISIONS 002). VLC was a new *kind* — a second adapter kind (`media`)
+alongside `game`, with its own verbs — but still one agent at one more address
+(DECISIONS 017).
 
 ## Layout
 
 ```
 contract/       the seam — request/response types, zero dependencies
-agent/          1 per controlled server · WINDOWS · loopback only
+agent/          1 per controlled target (game or media) · WINDOWS · loopback only
 orchestrator/   exactly 1 · owns the Discord gateway
 site/           the landing page (static, no build step)
 specs/          Spec Kit features
@@ -34,17 +38,18 @@ npm test             # node:test
 
 npm run start:palworld     -w @reveille/agent   # needs agent/.env.palworld
 npm run start:satisfactory -w @reveille/agent   # needs agent/.env.satisfactory
+npm run start:vlc          -w @reveille/agent   # needs agent/.env.vlc (media)
 npm start                  -w @reveille/orchestrator   # needs orchestrator/.env
 ```
 
-On `watson`, start/stop the whole control plane (orchestrator + both agents) at once:
+On `watson`, start/stop the whole control plane (orchestrator + every agent) at once:
 
 ```powershell
 ./scripts/reveille.ps1 start | stop | restart | status
 ```
 
-It manages only those three node processes — never the game servers, which are
-started and stopped from Discord.
+It manages only those node processes — never the game servers or VLC themselves,
+which are controlled from Discord.
 
 **There is no build step.** Node 24 runs TypeScript directly by stripping types, so
 `tsc` is a type checker that never emits. `erasableSyntaxOnly` is on, which means a
@@ -61,52 +66,64 @@ same box (FR-013, spec Assumptions).
 
 **The orchestrator and agent talk over HTTP, always**, even sharing a machine.
 Never import across those packages; eslint blocks it. The seam is the one
-genuinely irreversible decision here (Constitution I). It has **three** verbs:
-`POST /start`, `POST /stop`, and `GET /status` (added in 002, additive). No server
-id ever enters a path or body — an agent's URL *is* its identity.
+genuinely irreversible decision here (Constitution I). It has **five** verbs:
+`POST /start`, `POST /stop`, `GET /status` (games; `/status` added 002), and
+`POST /pause`, `POST /play` (media; added 003, additive — every earlier field
+unchanged, seam v3). No target id ever enters a path or body — an agent's URL *is*
+its identity. An agent answers only its kind's verbs (a `/start` to a media agent is
+a 404), and the orchestrator never sends the wrong ones.
 
-**Only an adapter file may know its game.** `agent/src/palworld.ts` and
-`agent/src/satisfactory.ts` each implement `GameAdapter` (`agent/src/adapter.ts`);
-`createAdapter` selects one by the `GAME` config. **Nothing else branches on which
-game it is** (FR-025) — the HTTP layer, config loader, serializer, and orchestrator
-are all adapter-agnostic. A third game is a third adapter plus one `AGENTS` entry.
+**Only an adapter file may know its target.** `agent/src/palworld.ts` and
+`agent/src/satisfactory.ts` implement `GameAdapter`; `agent/src/vlc.ts` implements
+`MediaAdapter` (both in `agent/src/adapter.ts`, each tagged `kind: 'game' | 'media'`).
+`createAdapter` selects one by the `TARGET` config; the server dispatches an
+adapter's verbs by its `kind`. **Nothing else branches on which target it is**
+(FR-025) — the HTTP layer, config loader, serializer, and orchestrator are all
+adapter-agnostic. A new target of an existing kind is a new adapter plus one
+`AGENTS` entry; a new *kind* is a new adapter interface plus a `case`.
 
-**Never force-stop.** OS-level process termination and any game-specific *force*
-stop (Palworld's `POST /v1/api/stop`) must not appear in a path reachable from
-`/stop`. A stop that cannot be graceful is not a stop — it fails and leaves the
+**Never force-stop (games).** OS-level process termination and any game-specific
+*force* stop (Palworld's `POST /v1/api/stop`) must not appear in a path reachable
+from `/stop`. A stop that cannot be graceful is not a stop — it fails and leaves the
 server running (Constitution IV). Each adapter's source is tested for this and for
-save-before-shutdown: `palworld.test.ts` **and** `satisfactory.test.ts`.
+save-before-shutdown: `palworld.test.ts` **and** `satisfactory.test.ts`. Media has
+no `/stop`; `vlc.test.ts` bans OS kill **and** any content/playlist/seek command —
+Reveille toggles playback, never chooses what plays (FR-004, FR-011).
 
 **`/status` is read-only and must not sit on the command mutex.** The agent
-serializes `/start` and `/stop` (check-then-act, FR-008), but `/status` is a pure
-read that US3 polls — serializing it would stall a poll behind an in-flight stop and
-contend with real commands. It runs concurrently.
+serializes the acting verbs (`/start`·`/stop`, or `/pause`·`/play` for media —
+check-then-act, FR-008), but `/status` is a pure read that US3 polls — serializing
+it would stall a poll behind an in-flight command. It runs concurrently, and folds
+every target (games and media) into one reply, each in its own vocabulary.
 
 **The agent keeps zero runtime dependencies.** `node:http`, `node:https` (for
 Satisfactory's self-signed loopback TLS, which `fetch` cannot be told to accept),
-native `fetch`, and `--env-file` instead of dotenv. Adding one needs a
-`DECISIONS.md` entry.
+native `fetch` (VLC's web interface is plain HTTP on loopback, so it needs no TLS
+module), and `--env-file` instead of dotenv. Adding one needs a `DECISIONS.md` entry.
 
 **No fallback config.** Every environment variable is required and throws at boot
-naming itself. A missing/unknown `GAME` would control the wrong server; an empty
-`AGENTS` map leaves the orchestrator with nothing to command; a blank admin password
-is an open admin interface; a missing stop bound silently removes a data-loss
-guarantee.
+naming itself. A missing/unknown `TARGET` would control the wrong target; an empty
+`AGENTS` map leaves the orchestrator with nothing to command; a missing/unknown
+`kind` would register the wrong verbs; a blank admin/VLC password is an open control
+interface; a missing stop bound silently removes a data-loss guarantee.
 
 ## Configuration
 
 The env files are gitignored — **the repository is public**. Copy from the
 `.env.example` beside each; every value is documented there. One agent runs **per
-game**, each with its own env file, named symmetrically so neither game is the
-"default": **`agent/.env.palworld`** and **`agent/.env.satisfactory`** (each sets a
-different `GAME` and `AGENT_PORT`, launched by `npm run start:<game>`). The
-orchestrator has one **`orchestrator/.env`**.
+target**, each with its own env file, named symmetrically so none is the "default":
+**`agent/.env.palworld`**, **`agent/.env.satisfactory`**, **`agent/.env.vlc`** (each
+sets a different `TARGET` and `AGENT_PORT`, launched by `npm run start:<target>`).
+The orchestrator has one **`orchestrator/.env`**.
 
-- **Agent:** `GAME` (`palworld` | `satisfactory`) selects the adapter and therefore
-  which game-specific values are required. Only that game's block is consulted.
-- **Orchestrator:** `AGENTS` is a JSON array of `{name, url, publicPort}` — one entry
-  per server, replacing 001's single `AGENT_BASE_URL`. Plus `FOLLOWUP_TIMEOUT_MS`
-  (the US3 bound).
+- **Agent:** `TARGET` (`palworld` | `satisfactory` | `vlc`) selects the adapter and
+  therefore which target-specific values are required. Only that target's block is
+  consulted — games read a game block + `STOP_TIMEOUT_MS`; `vlc` reads `VLC_BASE_URL`
+  + `VLC_PASSWORD` and no stop bound.
+- **Orchestrator:** `AGENTS` is a JSON array of `{name, url, kind, publicPort?}` — one
+  entry per target (`kind` is `game` | `media`; a media entry has **no** `publicPort`,
+  a game entry requires one), replacing 001's single `AGENT_BASE_URL`. Plus
+  `FOLLOWUP_TIMEOUT_MS` (the US3 bound).
 
 Passwords, easily confused:
 
@@ -141,7 +158,17 @@ mirroring the Palworld 8212 rule). The agent is on **`8301/TCP`**, loopback-boun
 Everything measured during M0 is in
 [`specs/002-second-game-server/m0-satisfactory.md`](specs/002-second-game-server/m0-satisfactory.md).
 
-None of these start at boot — the orchestrator and both agents are launched by hand.
+VLC is the media target (003). It runs at `C:\Program Files\VideoLAN\VLC\vlc.exe`,
+and the **operator opens the show and presses play as usual** — Discord only toggles
+playback of whatever is loaded. One-time setup: enable VLC's Web interface and set a
+password in Preferences. The web interface binds **`127.0.0.1:8080`** (plain HTTP,
+Basic auth = empty user + the password), and the media agent is on **`8302/TCP`**,
+loopback-bound. **Media adds NO network exposure** — the video is local and the
+control path is loopback end to end, so there is nothing to forward and **no firewall
+rule** (unlike the games' `0.0.0.0` admin APIs). M0 is in
+[`specs/003-media-control/m0-vlc.md`](specs/003-media-control/m0-vlc.md).
+
+None of these start at boot — the orchestrator and every agent are launched by hand.
 That is deferred deliberately, with a trigger, in
 [`03-deferred.md`](initial-architecture/03-deferred.md).
 
@@ -149,15 +176,19 @@ That is deferred deliberately, with a trigger, in
 
 `node:test`, no framework. Tests sit beside their source as `*.test.ts`.
 
-Anything touching a game server is verified against a **real** install rather than
-mocks — that is the whole reason M0 exists as a prerequisite, once per game.
-Behaviour each adapter depends on (process names, API timing) was observed, not
-assumed. Palworld: the REST API answers ~3s after launch on an empty world, and it
-autosaves every 30 seconds while a player is connected (why the save-durability test
-in `quickstart.md` §4 only means anything if you beat that clock). Satisfactory: the
-HTTPS API answers ~10s after launch but reports `isGameRunning:false` until the world
-loads, so `running` keys on `isGameRunning`, not mere reachability — the full M0
-record is in `specs/002-second-game-server/m0-satisfactory.md`.
+Anything touching a controlled target is verified against a **real** install rather
+than mocks — that is the whole reason M0 exists as a prerequisite, once per target.
+Behaviour each adapter depends on (process names, API timing, command names) was
+observed, not assumed. Palworld: the REST API answers ~3s after launch on an empty
+world, and it autosaves every 30 seconds while a player is connected (why the
+save-durability test in `quickstart.md` §4 only means anything if you beat that
+clock). Satisfactory: the HTTPS API answers ~10s after launch but reports
+`isGameRunning:false` until the world loads, so `running` keys on `isGameRunning`,
+not mere reachability — record in `specs/002-second-game-server/m0-satisfactory.md`.
+VLC: `status.json`'s `state` is exactly `playing`/`paused`/`stopped`; pause/resume
+are the **force** commands (`pl_forcepause`/`pl_forceresume`, idempotent — the toggle
+would flip wrong on a stale read); nothing loaded reads `stopped` — record in
+`specs/003-media-control/m0-vlc.md`.
 
 ## Releases
 

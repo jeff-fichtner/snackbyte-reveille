@@ -111,9 +111,17 @@ export function describeStop(result: AgentResult): Reply {
   };
 }
 
-/** `satisfactory` → `Satisfactory`, for the embed title that names the target. */
+/**
+ * How a target's name renders for a human — `satisfactory` → `Satisfactory`.
+ *
+ * Display only: internal names stay lowercase everywhere (routing keys, config, the
+ * Discord subcommand rules), and this is the ONE place they become human-facing. An
+ * acronym a plain title-case would mangle (`vlc` → `Vlc`) is spelled out here, so the
+ * status and replies read `VLC` while the target is still `vlc` under the hood.
+ */
+const DISPLAY_NAME: Record<string, string> = { vlc: 'VLC' };
 export function titleCase(name: string): string {
-  return name.charAt(0).toUpperCase() + name.slice(1);
+  return DISPLAY_NAME[name] ?? name.charAt(0).toUpperCase() + name.slice(1);
 }
 
 /** One server's answer to `/status`: its name, and what its agent said (or didn't). */
@@ -122,12 +130,18 @@ export interface ServerStatus {
   readonly result: AgentResult;
 }
 
-/** How each derived state reads in a status list. Never mentions players (FR-011). */
+/**
+ * How each derived state reads in a status list — games in their vocabulary,
+ * the media player in its (003). `/status` folds every target in; each is rendered
+ * in its own words. Never mentions players (FR-011).
+ */
 const STATE_WORD: Record<string, string> = {
   running: 'running',
   starting: 'starting',
   stopped: 'stopped',
   error: 'error',
+  playing: 'playing',
+  paused: 'paused',
 };
 
 /**
@@ -140,7 +154,16 @@ const STATE_WORD: Record<string, string> = {
 export function describeStatus(statuses: readonly ServerStatus[]): Reply {
   const lines = statuses.map(({ name, result }) => {
     const label = `**${titleCase(name)}**`;
-    if (!result.reached) return `${label} — unreachable`;
+    // `unreachable` is a transport fact, never a state (Key Entities, FR-009). We show
+    // it whenever we could not read a clean state — EITHER the agent did not answer, OR
+    // it answered but could not derive its target's state. The latter is the real,
+    // common media case: when VLC is closed the agent's /status returns 500 `error`
+    // because the player itself is unreachable (FR-003 folds "the player could not be
+    // reached" into unreachable). Rendering that 500 as `error` would both leak a
+    // game-only word into media and contradict AC4. A game agent's /status never
+    // errors — its getState derives a state and never throws — so games are unchanged
+    // (FR-013): this branch only ever fires for a media target with its player closed.
+    if (!result.reached || result.status !== 200) return `${label} — unreachable`;
     return `${label} — ${STATE_WORD[result.body.state] ?? result.body.state}`;
   });
   return { tone: 'ok', text: lines.join('\n') };
@@ -229,6 +252,37 @@ export async function lookupPublicIp(): Promise<{ ip: string } | { error: string
 }
 
 /**
+ * Turn a media agent's `/pause` result into what the channel sees (003). A 200 is
+ * done — "Paused.", or the agent's no-op note ("Already paused.", FR-007); a 409 is
+ * the honest refusal when nothing is playing (FR-008); unreachable reads as such,
+ * never a playback state (FR-009). Pure and testable.
+ */
+export function describePause(result: AgentResult): Reply {
+  if (!result.reached) return unreachable(result.reason);
+  const { status, body } = result;
+  if (status === 200) return { tone: 'ok', text: body.message ?? 'Paused.' };
+  if (status === 409) return { tone: 'refused', text: 'Nothing is playing — nothing to pause.' };
+  return {
+    tone: 'failed',
+    text: 'Could not pause the player.',
+    footnote: body.message ?? `Agent returned HTTP ${status}.`,
+  };
+}
+
+/** Turn a media agent's `/play` (resume) result into what the channel sees (003). */
+export function describeResume(result: AgentResult): Reply {
+  if (!result.reached) return unreachable(result.reason);
+  const { status, body } = result;
+  if (status === 200) return { tone: 'ok', text: body.message ?? 'Playing.' };
+  if (status === 409) return { tone: 'refused', text: 'Nothing is loaded — nothing to resume.' };
+  return {
+    tone: 'failed',
+    text: 'Could not resume the player.',
+    footnote: body.message ?? `Agent returned HTTP ${status}.`,
+  };
+}
+
+/**
  * `/status` — every server's state at once, read-only (US2). Queries all agents in
  * parallel; each server is independent, so one unreachable agent does not stop the
  * others being reported. Names no single server — it reports them all.
@@ -296,5 +350,40 @@ export async function handleAddress(
   }
   await interaction.editReply({
     embeds: [toEmbed(describeAddress(await lookupPublicIp(), port), serverName)],
+  });
+}
+
+/**
+ * `/pause` — pause the one media player (003). A bare command (no subcommand), so it
+ * is handed the media target's name from config. Names the target in the reply title.
+ */
+export async function handlePause(
+  interaction: ChatInputCommandInteraction,
+  agents: ReadonlyMap<string, AgentClient>,
+  serverName: string,
+): Promise<void> {
+  const routed = routeToAgent(serverName, agents);
+  if ('reply' in routed) {
+    await interaction.editReply({ embeds: [toEmbed(routed.reply, serverName)] });
+    return;
+  }
+  await interaction.editReply({
+    embeds: [toEmbed(describePause(await routed.agent.pause()), serverName)],
+  });
+}
+
+/** `/play` — resume the one media player (003). */
+export async function handleResume(
+  interaction: ChatInputCommandInteraction,
+  agents: ReadonlyMap<string, AgentClient>,
+  serverName: string,
+): Promise<void> {
+  const routed = routeToAgent(serverName, agents);
+  if ('reply' in routed) {
+    await interaction.editReply({ embeds: [toEmbed(routed.reply, serverName)] });
+    return;
+  }
+  await interaction.editReply({
+    embeds: [toEmbed(describeResume(await routed.agent.play()), serverName)],
   });
 }

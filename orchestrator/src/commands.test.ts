@@ -5,6 +5,8 @@ import {
   describeStop,
   describeAddress,
   describeStatus,
+  describePause,
+  describeResume,
   toEmbed,
   routeToAgent,
 } from './commands.ts';
@@ -166,6 +168,55 @@ test('/status shows an unreachable agent as such, others still reported (FR-023,
   assert.match(r.text, /Satisfactory.*unreachable/i, 'the down agent is unreachable, not a state');
 });
 
+test('/status folds a media target in its own vocabulary, alongside the games (US2)', () => {
+  const r = describeStatus([
+    { name: 'palworld', result: reached(200, { state: 'running' }) },
+    { name: 'vlc', result: reached(200, { state: 'paused' }) },
+  ]);
+  assert.equal(r.tone, 'ok');
+  assert.match(r.text, /Palworld.*running/, 'the game is still rendered as before (FR-013)');
+  assert.match(r.text, /VLC.*paused/, 'the media target reads in playback words, not game words');
+  // A media state is never dressed up as a game state, or vice versa.
+  assert.doesNotMatch(r.text, /VLC.*(running|starting)/i);
+});
+
+test('/status shows a closed media player as unreachable, distinct from stopped (FR-023/026)', () => {
+  const down = describeStatus([{ name: 'vlc', result: { reached: false, reason: 'ECONNREFUSED' } }]);
+  assert.match(down.text, /Vlc.*unreachable/i, 'a down media agent is unreachable, not a state');
+
+  const stopped = describeStatus([{ name: 'vlc', result: reached(200, { state: 'stopped' }) }]);
+  assert.match(stopped.text, /Vlc.*stopped/i, 'nothing loaded is stopped, a real state');
+  assert.notEqual(down.text, stopped.text, 'unreachable and stopped must not read alike');
+});
+
+test('/status renders a player-closed 500 as unreachable, never the game word "error" (US2/AC4, FR-003)', () => {
+  // Agent UP, VLC CLOSED — the common "control plane started, show not opened yet"
+  // case. The agent's /status returns 500 error because VLC's web interface is gone.
+  // That must read as unreachable (the player could not be reached), not "error", and
+  // the game beside it must still report normally (FR-013).
+  const r = describeStatus([
+    { name: 'palworld', result: reached(200, { state: 'running' }) },
+    { name: 'vlc', result: reached(500, { state: 'error', message: 'ECONNREFUSED' }) },
+  ]);
+  assert.match(r.text, /Palworld.*running/, 'the game still reports normally');
+  assert.match(r.text, /Vlc.*unreachable/i, 'a closed player is unreachable');
+  assert.doesNotMatch(r.text, /Vlc.*error/i, 'the game-only "error" word must not leak into media status');
+});
+
+test('the media target displays as VLC (all caps) while staying `vlc` internally', () => {
+  // Display only — the internal name is still lowercase `vlc` (routing/config), but a
+  // human reads VLC. Case-sensitive on purpose: "Vlc" is the bug being prevented.
+  const status = describeStatus([{ name: 'vlc', result: reached(200, { state: 'paused' }) }]);
+  assert.match(status.text, /\bVLC\b/, 'status must read VLC, all caps');
+  assert.doesNotMatch(status.text, /\bVlc\b/, 'a plain title-case "Vlc" must not leak through');
+
+  // The /pause reply's embed title names the target too — also VLC.
+  const title = toEmbed(describePause(reached(200, { state: 'paused' })), 'vlc').toJSON().title;
+  assert.equal(title, 'VLC');
+  // A normal name is unaffected — still plain title-case.
+  assert.equal(toEmbed(describeStop(reached(200, { state: 'stopped' })), 'satisfactory').toJSON().title, 'Satisfactory');
+});
+
 test('/status never says who or how many are connected (FR-011)', () => {
   const r = describeStatus([{ name: 'palworld', result: reached(200, { state: 'running' }) }]);
   assert.doesNotMatch(r.text, /player|connected|online|\b\d+\s*\/\s*\d+\b/i);
@@ -192,6 +243,77 @@ test('an unknown server name is refused with the valid list, never routed (FR-02
   assert.equal(r.reply.tone, 'refused');
   assert.match(r.reply.text, /minecraft/, 'does not name the bad target');
   assert.match(r.reply.text, /palworld/, 'does not offer the valid list');
+});
+
+test('a pause that acted reads as done; a no-op reads as a no-op, not a failure (FR-007)', () => {
+  const acted = describePause(reached(200, { state: 'paused' }));
+  assert.equal(acted.tone, 'ok');
+  assert.match(acted.text, /paused/i);
+
+  // The agent reports an already-paused as a 200 with a message — it is a reported
+  // no-op, NOT a failure. It must read as ok, and carry the agent's own words.
+  const noop = describePause(reached(200, { state: 'paused', message: 'Already paused.' }));
+  assert.equal(noop.tone, 'ok', 'a no-op must not read as a failure');
+  assert.match(noop.text, /already paused/i);
+});
+
+test('a pause with nothing playing is refused honestly, never faked (FR-008)', () => {
+  const r = describePause(reached(409, { state: 'stopped' }));
+  assert.equal(r.tone, 'refused');
+  assert.match(r.text, /nothing is playing/i);
+  assert.notEqual(r.tone, 'ok', 'refusing to pause nothing must not read as success');
+});
+
+test('resume mirrors pause: acted, no-op, and nothing-loaded each read correctly', () => {
+  assert.equal(describeResume(reached(200, { state: 'playing' })).tone, 'ok');
+  assert.match(describeResume(reached(200, { state: 'playing' })).text, /playing/i);
+
+  const noop = describeResume(reached(200, { state: 'playing', message: 'Already playing.' }));
+  assert.equal(noop.tone, 'ok');
+  assert.match(noop.text, /already playing/i);
+
+  const refused = describeResume(reached(409, { state: 'stopped' }));
+  assert.equal(refused.tone, 'refused');
+  assert.match(refused.text, /nothing is loaded/i);
+});
+
+test('an unreachable media host reads as unreachable, not a playback state (FR-009)', () => {
+  for (const r of [
+    describePause({ reached: false, reason: 'ECONNREFUSED' }),
+    describeResume({ reached: false, reason: 'ECONNREFUSED' }),
+  ]) {
+    assert.equal(r.tone, 'failed');
+    assert.match(r.text, /could not reach the host/i);
+    assert.doesNotMatch(r.text, /\b(playing|paused|stopped)\b/i, 'must not report a state it never got');
+  }
+});
+
+test('every pause/resume branch produces a non-empty reply (SC-004)', () => {
+  const cases: AgentResult[] = [
+    { reached: false, reason: 'boom' },
+    reached(200, { state: 'paused' }),
+    reached(200, { state: 'paused', message: 'Already paused.' }),
+    reached(409, { state: 'stopped' }),
+    reached(500, { state: 'error', message: 'vlc web interface returned HTTP 500' }),
+  ];
+  for (const c of cases) {
+    for (const r of [describePause(c), describeResume(c)]) {
+      assert.ok(r.text.trim().length > 0, `empty text for ${JSON.stringify(c)}`);
+      assert.ok(TONES.includes(r.tone), `bad tone for ${JSON.stringify(c)}`);
+    }
+  }
+});
+
+test('a media command routes to the media agent only, never a game agent (FR-021)', () => {
+  const pal = new AgentClient('http://127.0.0.1:8300');
+  const vlc = new AgentClient('http://127.0.0.1:8302');
+  const agents = new Map([
+    ['palworld', pal],
+    ['vlc', vlc],
+  ]);
+  const routed = routeToAgent('vlc', agents);
+  assert.ok('agent' in routed && routed.agent === vlc, 'a media command reached the wrong agent');
+  assert.ok(routed.agent !== pal, 'a media command must not touch a game agent');
 });
 
 test('the reply names the server it acted on, in the embed title (FR-018)', () => {

@@ -35,11 +35,24 @@ export function requiredPositiveInt(name: string, env: NodeJS.ProcessEnv = proce
  * surface; it never enters the contract (DECISIONS 002). Adding a server is one
  * more entry here plus deploying its agent (FR-024) — no code change.
  */
-export interface ControlledServer {
+interface CommonServer {
   readonly name: string;
   readonly baseUrl: string;
+}
+
+/** A game target — `/start`/`/stop`/`/address` apply; it names a public port for `/address`. */
+export interface GameServer extends CommonServer {
+  readonly kind: 'game';
   readonly publicPort: number;
 }
+
+/** A media target — `/pause`/`/play` apply; nothing is forwarded, so no public port. */
+export interface MediaServer extends CommonServer {
+  readonly kind: 'media';
+}
+
+/** One controlled target, of either kind. The `kind` tag picks the verbs and the report. */
+export type ControlledServer = GameServer | MediaServer;
 
 export interface OrchestratorConfig {
   readonly discordBotToken: string;
@@ -83,7 +96,7 @@ export function parseAgents(env: NodeJS.ProcessEnv = process.env): readonly Cont
     if (typeof entry !== 'object' || entry === null) {
       throw new Error(`${where} must be an object like {"name","url","publicPort"}.`);
     }
-    const { name, url, publicPort } = entry as Record<string, unknown>;
+    const { name, url, kind, publicPort } = entry as Record<string, unknown>;
 
     if (typeof name !== 'string' || !NAME_PATTERN.test(name)) {
       throw new Error(`${where}.name must match ${NAME_PATTERN} (Discord subcommand rules), got ${JSON.stringify(name)}.`);
@@ -96,11 +109,22 @@ export function parseAgents(env: NodeJS.ProcessEnv = process.env): readonly Cont
     if (typeof url !== 'string' || url.trim() === '') {
       throw new Error(`${where}.url must be a non-empty agent base URL, got ${JSON.stringify(url)}.`);
     }
-    if (!Number.isInteger(publicPort) || (publicPort as number) <= 0) {
-      throw new Error(`${where}.publicPort must be a positive integer, got ${JSON.stringify(publicPort)}.`);
+    if (kind !== 'game' && kind !== 'media') {
+      throw new Error(`${where}.kind must be 'game' or 'media', got ${JSON.stringify(kind)}.`);
     }
+    const baseUrl = url.trim().replace(/\/+$/, '');
 
-    return { name, baseUrl: url.trim().replace(/\/+$/, ''), publicPort: publicPort as number };
+    // A game names a public port players connect to (/address); a media target has none.
+    if (kind === 'game') {
+      if (!Number.isInteger(publicPort) || (publicPort as number) <= 0) {
+        throw new Error(`${where}.publicPort must be a positive integer for a game, got ${JSON.stringify(publicPort)}.`);
+      }
+      return { name, baseUrl, kind, publicPort: publicPort as number };
+    }
+    if (publicPort !== undefined) {
+      throw new Error(`${where}.publicPort must be omitted for a media target (nothing is forwarded), got ${JSON.stringify(publicPort)}.`);
+    }
+    return { name, baseUrl, kind };
   });
 }
 

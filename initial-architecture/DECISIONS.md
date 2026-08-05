@@ -584,3 +584,112 @@ built-ins (this entry is its `DECISIONS` warrant). **The `7777` trap:** the game
 number, different protocol — so exposure forwards UDP only, and a firewall rule
 blocks `7777/TCP` from the LAN (mirroring Palworld's 8212 rule). A blank
 `SATISFACTORY_ADMIN_PASSWORD` is an open admin interface, same as Palworld's.
+
+---
+
+## 017 · Reveille controls targets, not only games; media is a second adapter kind
+**Date:** 2026-08-04 · **Status:** accepted
+**Closes:** whether a non-game (a video player) belongs in a "game server" control plane (003)
+
+**Context.** 003 asked for pause/resume of an already-playing VLC from Discord — so
+a partner at home (or the person who left) can hold a show. That is a real target on
+`watson`, but it is not a game server, and forcing it into the game vocabulary would
+lie: pausing playback is not a process lifecycle. `start = spawn` and `stop =
+save+shutdown` have no honest meaning for a player that is already open.
+
+**Decision.** Widen the system from "control plane for self-hosted game servers" to
+"control plane for **controllable targets on a host**." A target has a *kind*; `game`
+is the first, `media` the second. Each adapter carries a `kind` tag (`GameAdapter`
+`kind:'game'`, `MediaAdapter` `kind:'media'`), and the agent dispatches an adapter's
+verbs by that tag — games answer `/start`·`/stop`, media answers `/pause`·`/play`,
+both answer `/status`. The agent's `GAME` discriminant is renamed **`TARGET`**
+(`palworld` | `satisfactory` | `vlc`); `createAdapter` switches on it, still the only
+target branch in the agent (extends 013). Media is **not a new component** — it is a
+second adapter *kind* inside the existing `agent/` package, a row not a new column
+(Constitution II, now amended to match: v1.1.0).
+
+**Why it won.** Playback control is genuinely a different verb set from a process
+lifecycle, so it earns its own verbs and adapter rather than being bent onto
+`/start`·`/stop`. But everything else — the orchestrator↔agent seam, the loopback
+deployment, the no-auth-because-loopback trade, the derive-don't-remember state rule
+— reuses cleanly. Chosen over a separate "media control plane" (would duplicate the
+whole seam and bot for one target) and over overloading the game verbs (would force a
+dishonest `start`/`stop` and break the game conformance check).
+
+**Consequences.** The Constitution's opening line and Principle II widened to
+"controllable target on a host" (this entry is that amendment's required warrant,
+v1.1.0). The orchestrator registers verbs **partitioned by kind** — game subcommands
+for games, bare `/pause`·`/play` for the one media target — so a media target never
+surfaces as `/start vlc` and mis-routes to an agent with no `/start`. A third kind is
+a third adapter interface plus a `case`; a third *instance* of an existing kind is
+still just one more `AGENTS` entry.
+
+---
+
+## 018 · The seam gains media verbs and a media state (contract v3, additive)
+**Date:** 2026-08-04 · **Status:** accepted
+**Closes:** how playback control crosses the seam without breaking the game conformance check
+
+**Context.** 017 makes media a target kind; its verbs and state have to cross the
+orchestrator↔agent seam. The seam had three verbs (`POST /start`, `POST /stop`,
+`GET /status`, 014) and a `ServerState`. Media needs `pause`/`resume` and a
+playing/paused/stopped state — but a 001/002 conformance check (SC-007) must still
+pass, so this cannot be a rewrite.
+
+**Decision.** Purely **additive** seam v3: add `POST /pause` and `POST /play`, and a
+`MediaState = 'playing' | 'paused' | 'stopped'` with `AgentResponse.state` widened to
+`ServerState | MediaState`. Every v2 field and behaviour is unchanged; no target id
+enters a path or body (Constitution I holds — an agent's URL is still its identity).
+The new verbs are POST like the acting verbs; `/status` still serves both kinds and
+stays off the command mutex (014).
+
+**Why it won.** Additive keeps the game seam byte-for-byte, so 001/002 keep working
+and the change is reviewable as "two verbs and a state, nothing removed." A media
+target answers only its own verbs (a `/start` to a media agent is a 404, and the
+orchestrator never sends one), so the kinds cannot cross-talk. Chosen over a generic
+"command" verb with a discriminator (that would smuggle a target/verb id into the
+contract, which the seam forbids) and over a separate media contract package
+(needless — the response shape is identical).
+
+**Consequences.** `contract/` gains `MediaState` and the widened union; the
+no-discriminator contract test still passes. The agent's router dispatches
+`/pause`·`/play` for a media adapter and `/start`·`/stop` for a game adapter, keyed
+on `kind`. The response encodes a no-op honestly (200 with a message, e.g. "Already
+paused.") and refuses when nothing is loaded (409) — distinct from unreachable (a
+transport fact), so the player is never misled (FR-007/008/009).
+
+---
+
+## 019 · The media adapter speaks VLC's HTTP web interface (loopback, plain HTTP, zero deps)
+**Date:** 2026-08-04 · **Status:** accepted
+**Closes:** which VLC interface serves the media verbs, and how it is reached and exposed
+
+**Context.** 017/018 define the media kind and its seam; the first media adapter is
+VLC. VLC's request shapes, command names, state strings, auth, and binding had to be
+observed against a real install (M0) before `vlc.ts` was written — exactly as the
+game adapters were (`m0-vlc.md`), never from docs.
+
+**Decision.** `agent/src/vlc.ts` speaks VLC's built-in **HTTP web interface** over
+native **`fetch`**: `GET /requests/status.json` maps `.state` straight to
+`MediaState`; `pause`/`resume` issue `?command=pl_forcepause`/`pl_forceresume` — the
+**force** variants (the plain `pl_pause` toggles and would flip the wrong way on a
+stale read). Auth is HTTP Basic with an **empty username** and the configured
+`VLC_PASSWORD`. The one-time operator setup is enabling the Web interface and setting
+that password in VLC's preferences.
+
+**Why it won.** The web interface is VLC's supported remote-control surface and
+speaks **plain HTTP on loopback** — so, unlike Satisfactory's self-signed TLS (016),
+native `fetch` reaches it and the agent keeps its **zero runtime dependencies** (no
+`node:https` here). The force commands are idempotent, which is what lets the agent
+treat an already-in-state command as a reported no-op. `vlc.ts` contains **no**
+content selection, playlist, seek, volume, or OS-level kill — Reveille toggles
+playback of whatever the operator already loaded, never chooses what plays (FR-004,
+FR-011); a source-ban test enforces this, mirroring the game adapters.
+
+**Consequences.** **Media adds no network exposure at all.** The video plays locally
+and the web interface binds `127.0.0.1` (M0-confirmed) — there is nothing to forward
+and no firewall rule to write, in contrast to the games' `0.0.0.0`-binding admin APIs
+(the 8212/7777 firewall rules). The control path is loopback end to end: Discord →
+orchestrator → media agent → VLC. A blank `VLC_PASSWORD` makes VLC 401 every request,
+so the agent fails loud at boot rather than discovering it later. A second player, if
+ever wanted, is a second media agent and a second `AGENTS` entry — not new code.

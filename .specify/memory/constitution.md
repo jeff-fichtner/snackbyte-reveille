@@ -1,5 +1,14 @@
 <!--
 SYNC IMPACT REPORT
+Version change: 1.0.0 → 1.1.0
+Rationale (1.1.0, 2026-08-04): MINOR amendment — materially widened scope, no
+principle removed or redefined. The opening line and Principle II broaden "game
+server process" to "controllable target on a host" so the agent can be welded to a
+non-game target (a media player, 003). The seam, the weld, and every placement
+rule are unchanged; only the set of admissible targets grew. Recorded in
+DECISIONS 017. Amended sections: opening line, Principle II (definition +
+rationale). No template changes required (the Constitution Check gate is generic).
+
 Version change: (none) → 1.0.0
 Rationale: Initial ratification. Template placeholders replaced with concrete
 principles derived from initial-architecture/DECISIONS.md (001–008) and
@@ -32,8 +41,9 @@ Deferred placeholders: none
 
 # Reveille Constitution
 
-Reveille is an on-demand control plane for self-hosted game servers. This
-constitution governs how it is built. It does not restate the architecture —
+Reveille is an on-demand control plane for controllable targets on a host — game
+servers first, and any other target a host can start, stop, or toggle (a media
+player was the second, 003). This constitution governs how it is built. It does not restate the architecture —
 [`initial-architecture/DECISIONS.md`](../../initial-architecture/DECISIONS.md) is
 the authority for *what* was decided and *why*. This document states the rules
 that decisions must not violate.
@@ -59,8 +69,14 @@ now and grows more expensive in exact proportion to how long it is deferred.
 
 The system has exactly three kinds of component, each defined by what it is
 welded to: the **orchestrator** (welded to nothing, exactly one), the **agent**
-(welded to a game server process, one per server), and the **emitter** (welded to
-a broadcast domain, one per LAN).
+(welded to a controllable target on a host, one per target), and the **emitter**
+(welded to a broadcast domain, one per LAN).
+
+A target is whatever a host can control: a game server process, a media player,
+whatever comes next. An agent may control it however that target is reached — a
+spawned process, a local HTTP interface — but it is still one agent welded to one
+target on one host. The *kind* of target (game, media, …) selects the agent's
+verbs; it never changes what an agent is or where it lives.
 
 Actuators MUST NOT be separated from what they are welded to. Growth MUST take
 the form of more instances, never pieces of one component splitting off.
@@ -68,6 +84,8 @@ the form of more instances, never pieces of one component splitting off.
 *Rationale:* a process that actuates something on a machine has to be on that
 machine (DECISIONS 007, 008). This is definitional, not preference, and it is
 what makes every placement question answerable by asking "what is it welded to?"
+Widening "game server process" to "controllable target on a host" (003) did not
+touch that logic — it only admitted targets that are not games (DECISIONS 017).
 
 ### III. Build The Minimum; Defer By Default
 
@@ -163,4 +181,4 @@ generated. Violations MUST be justified explicitly in the plan's Complexity
 Tracking section or the approach MUST be simplified. An unjustifiable violation
 of Principle I or II is not a complexity trade-off — it is a defect.
 
-**Version**: 1.0.0 | **Ratified**: 2026-07-20 | **Last Amended**: 2026-07-20
+**Version**: 1.1.0 | **Ratified**: 2026-07-20 | **Last Amended**: 2026-08-04

@@ -211,6 +211,7 @@ export async function stop(config: PalworldConfig): Promise<void> {
  */
 export function createPalworldAdapter(config: PalworldConfig): GameAdapter {
   return {
+    kind: 'game',
     getState: () => getState(config),
     start: () => start(config),
     stop: () => stop(config),

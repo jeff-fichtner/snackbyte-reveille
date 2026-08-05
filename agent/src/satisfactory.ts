@@ -157,6 +157,7 @@ export function createSatisfactoryAdapter(config: SatisfactoryConfig): GameAdapt
   }
 
   return {
+    kind: 'game',
     /**
      * Derive the state by asking now (FR-012). `stopped` when no process exists;
      * `running` only once the world is actually up (`isGameRunning`); otherwise

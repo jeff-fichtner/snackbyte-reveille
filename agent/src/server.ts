@@ -1,14 +1,18 @@
 /**
- * The agent's HTTP server — one per controlled game server, welded to it.
+ * The agent's HTTP server — one per controlled target, welded to it.
  *
  * Direction is orchestrator -> agent, always. The agent never initiates
  * (Constitution I). This module is side-effect-free: it builds a server from an
  * adapter and returns it; `index.ts` is the entry point that binds and listens.
+ *
+ * The verb set follows the adapter's `kind`: a game adapter answers `/start` and
+ * `/stop`, a media adapter `/pause` and `/play`; both answer `/status`. The game
+ * path is byte-for-byte what it was in 002 (FR-013).
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AgentResponse } from '@reveille/contract';
 import { serialize } from './serialize.ts';
-import type { GameAdapter } from './adapter.ts';
+import type { Adapter, GameAdapter, MediaAdapter } from './adapter.ts';
 
 function send(res: ServerResponse, status: number, body: AgentResponse): void {
   const payload = JSON.stringify(body);
@@ -70,8 +74,6 @@ async function handleStop(adapter: GameAdapter): Promise<Outcome> {
     return { status: 409, body: { state, message: 'Server is already stopped.' } };
   }
   if (state === 'starting') {
-    // Launched but the control API is not answering yet, so there is nothing to ask
-    // to save. Refused, and the launching process is left untouched (FR-017).
     return {
       status: 409,
       body: { state, message: 'A start is in progress. Try again shortly.' },
@@ -90,39 +92,93 @@ async function handleStop(adapter: GameAdapter): Promise<Outcome> {
   return { status: 200, body: { state: 'stopped' } };
 }
 
-/** GET /status — the server's state, read-only. Changes nothing (FR-022, SC-005). */
-async function handleStatus(adapter: GameAdapter): Promise<Outcome> {
+/**
+ * POST /pause — force-pause the current item (003, media agents only).
+ *
+ * A pause while already paused is a 200 no-op (nothing changed). Nothing loaded is
+ * refused honestly (409) rather than pretended (FR-007, FR-008). No content is
+ * selected or changed — only the play/pause state (FR-004).
+ */
+async function handlePause(adapter: MediaAdapter): Promise<Outcome> {
+  const state = await adapter.getState();
+  if (state === 'stopped') {
+    return { status: 409, body: { state, message: 'Nothing is playing.' } };
+  }
+  if (state === 'paused') {
+    // Already in the target state — a reported no-op, not a failure (FR-007).
+    return { status: 200, body: { state: 'paused', message: 'Already paused.' } };
+  }
+  try {
+    await adapter.pause();
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { status: 500, body: { state: 'error', message } };
+  }
+  return { status: 200, body: { state: 'paused' } };
+}
+
+/** POST /play — force-resume the paused item (003, media agents only). */
+async function handleResume(adapter: MediaAdapter): Promise<Outcome> {
+  const state = await adapter.getState();
+  if (state === 'stopped') {
+    return { status: 409, body: { state, message: 'Nothing is loaded to resume.' } };
+  }
+  if (state === 'playing') {
+    return { status: 200, body: { state: 'playing', message: 'Already playing.' } };
+  }
+  try {
+    await adapter.resume();
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { status: 500, body: { state: 'error', message } };
+  }
+  return { status: 200, body: { state: 'playing' } };
+}
+
+/** GET /status — the target's state, read-only. Changes nothing (FR-022, SC-005). */
+async function handleStatus(adapter: Adapter): Promise<Outcome> {
   const state = await adapter.getState();
   return { status: 200, body: { state } };
 }
 
-/** The mutating verbs. POST-only; `/status` is handled before this, off the mutex. */
-async function route(req: IncomingMessage, adapter: GameAdapter): Promise<Outcome> {
+/** The mutating verbs, dispatched by adapter kind. POST-only; `/status` is off the mutex. */
+async function route(req: IncomingMessage, adapter: Adapter): Promise<Outcome> {
   const path = (req.url ?? '').split('?')[0];
 
   if (req.method !== 'POST') {
     return { status: 405, body: { state: 'error', message: 'Only POST is supported.' } };
   }
 
+  if (adapter.kind === 'game') {
+    switch (path) {
+      case '/start':
+        return await handleStart(adapter);
+      case '/stop':
+        return await handleStop(adapter);
+      default:
+        return { status: 404, body: { state: 'error', message: `No such endpoint: ${path}` } };
+    }
+  }
+
   switch (path) {
-    case '/start':
-      return await handleStart(adapter);
-    case '/stop':
-      return await handleStop(adapter);
+    case '/pause':
+      return await handlePause(adapter);
+    case '/play':
+      return await handleResume(adapter);
     default:
       return { status: 404, body: { state: 'error', message: `No such endpoint: ${path}` } };
   }
 }
 
-export function createAgentServer(adapter: GameAdapter): ReturnType<typeof createServer> {
+export function createAgentServer(adapter: Adapter): ReturnType<typeof createServer> {
   return createServer((req, res) => {
     const path = (req.url ?? '').split('?')[0];
 
-    // `/status` is read-only and is polled (US3). It must NOT sit on the command
-    // mutex: serialized, a poll would stall behind an in-flight /stop (which holds
-    // the mutex through save + shutdown) and each poll would in turn delay real
-    // commands. It is safe concurrently precisely because it only reads (contract
-    // Rule 2). Handled here, ahead of the POST-only guard, so a GET is admitted.
+    // `/status` is read-only and is polled. It must NOT sit on the command mutex:
+    // serialized, a poll would stall behind an in-flight command and each poll would
+    // in turn delay real commands. It is safe concurrently precisely because it only
+    // reads (contract Rule 2). Handled here, ahead of the POST-only guard, so a GET
+    // is admitted.
     const settle = (out: Outcome): void => send(res, out.status, out.body);
     const fail = (error: unknown): void => {
       const message = error instanceof Error ? error.message : String(error);

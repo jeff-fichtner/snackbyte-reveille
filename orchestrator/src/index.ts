@@ -15,9 +15,16 @@ import {
   SlashCommandBuilder,
   type ChatInputCommandInteraction,
 } from 'discord.js';
-import { loadConfig } from './config.ts';
+import { loadConfig, type GameServer } from './config.ts';
 import { AgentClient } from './agent-client.ts';
-import { handleStart, handleStop, handleAddress, handleStatus } from './commands.ts';
+import {
+  handleStart,
+  handleStop,
+  handleAddress,
+  handleStatus,
+  handlePause,
+  handleResume,
+} from './commands.ts';
 import { armFollowup, shouldFollowUp } from './followup.ts';
 
 const config = loadConfig();
@@ -26,7 +33,12 @@ const config = loadConfig();
 // name is the routing key here and on the Discord surface only — never in the
 // contract (Constitution I). Adding a server is one more `AGENTS` entry, no code.
 const agents = new Map(config.servers.map((s) => [s.name, new AgentClient(s.baseUrl)]));
-const ports = new Map(config.servers.map((s) => [s.name, s.publicPort]));
+// `/address` needs a public port — game targets only (a media target has none).
+const ports = new Map(
+  config.servers.filter((s): s is GameServer => s.kind === 'game').map((s) => [s.name, s.publicPort]),
+);
+// The single media target, if configured — `/pause`/`/play` act on it (bare, SC-001).
+const mediaTarget = config.servers.find((s) => s.kind === 'media');
 
 /**
  * The three verbs, each with one subcommand PER CONFIGURED SERVER, built from
@@ -41,30 +53,45 @@ const ports = new Map(config.servers.map((s) => [s.name, s.publicPort]));
  * name cannot even be submitted through the picker.
  */
 function buildCommands() {
-  const start = new SlashCommandBuilder().setName('start').setDescription('Start a game server.');
-  const stop = new SlashCommandBuilder()
-    .setName('stop')
-    .setDescription('Save the world and stop a game server.');
-  // `/address` names a server too: two servers share the public IP but differ in
-  // game port, so there is no single address to report.
-  const address = new SlashCommandBuilder()
-    .setName('address')
-    .setDescription('Show where players connect for a server.');
-  // `/status` names NO server — it reports them all, so it has no subcommand.
-  const status = new SlashCommandBuilder()
-    .setName('status')
-    .setDescription('Show the state of every server.');
+  // Registration is PARTITIONED by kind (analyze F1): the game verbs get a subcommand
+  // per game target only — a media target must NOT surface as `/start vlc` and route a
+  // start to an agent that has no `/start`.
+  const games = config.servers.filter((s) => s.kind === 'game');
+  const cmds: SlashCommandBuilder[] = [];
 
-  for (const s of config.servers) {
-    start.addSubcommand((sub) => sub.setName(s.name).setDescription(`Start the ${s.name} server.`));
-    stop.addSubcommand((sub) =>
-      sub.setName(s.name).setDescription(`Save the world and stop the ${s.name} server.`),
-    );
-    address.addSubcommand((sub) =>
-      sub.setName(s.name).setDescription(`Show the address for the ${s.name} server.`),
-    );
+  if (games.length > 0) {
+    const start = new SlashCommandBuilder().setName('start').setDescription('Start a game server.');
+    const stop = new SlashCommandBuilder()
+      .setName('stop')
+      .setDescription('Save the world and stop a game server.');
+    // `/address` names a server too: two servers share the public IP but differ in
+    // game port, so there is no single address to report.
+    const address = new SlashCommandBuilder()
+      .setName('address')
+      .setDescription('Show where players connect for a server.');
+    for (const s of games) {
+      start.addSubcommand((sub) => sub.setName(s.name).setDescription(`Start the ${s.name} server.`));
+      stop.addSubcommand((sub) =>
+        sub.setName(s.name).setDescription(`Save the world and stop the ${s.name} server.`),
+      );
+      address.addSubcommand((sub) =>
+        sub.setName(s.name).setDescription(`Show the address for the ${s.name} server.`),
+      );
+    }
+    cmds.push(start, stop, address);
   }
-  return [start, stop, address, status].map((c) => c.toJSON());
+
+  // `/pause` and `/play` are BARE (no subcommand): there is one media target, so it can
+  // be controlled in two taps (SC-001, FR-015). Registered only when one is configured.
+  if (mediaTarget) {
+    cmds.push(new SlashCommandBuilder().setName('pause').setDescription('Pause the show.'));
+    cmds.push(new SlashCommandBuilder().setName('play').setDescription('Resume the show.'));
+  }
+
+  // `/status` names NO target — it reports them all, games and media alike.
+  cmds.push(new SlashCommandBuilder().setName('status').setDescription('Show the state of every target.'));
+
+  return cmds.map((c) => c.toJSON());
 }
 
 const commands = buildCommands();
@@ -111,12 +138,24 @@ async function handle(interaction: ChatInputCommandInteraction): Promise<void> {
   await interaction.deferReply();
 
   try {
-    // `/status` names no server — it reports them all, and has no subcommand.
+    // `/status` names no target — it reports them all, and has no subcommand.
     if (interaction.commandName === 'status') {
       return await handleStatus(interaction, agents);
     }
 
-    // The acting verbs each name their server as the subcommand (FR-018/019);
+    // `/pause` and `/play` name no target either — bare commands acting on the one
+    // configured media player (SC-001). No subcommand to read.
+    if (interaction.commandName === 'pause' || interaction.commandName === 'play') {
+      if (mediaTarget === undefined) {
+        await interaction.editReply('No media player is configured.');
+        return;
+      }
+      return interaction.commandName === 'pause'
+        ? await handlePause(interaction, agents, mediaTarget.name)
+        : await handleResume(interaction, agents, mediaTarget.name);
+    }
+
+    // The acting game verbs each name their server as the subcommand (FR-018/019);
     // Discord guarantees one was chosen, since each is nothing but subcommands.
     const server = interaction.options.getSubcommand();
     switch (interaction.commandName) {
