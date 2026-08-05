@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { loadConfig, parseAgents, required, requiredPositiveInt } from './config.ts';
+import { loadConfig, parseAgents, parseGuildIds, required, requiredPositiveInt } from './config.ts';
 
 const AGENTS = JSON.stringify([
   { name: 'palworld', url: 'http://127.0.0.1:8300', kind: 'game', publicPort: 8211 },
@@ -105,6 +105,17 @@ test('a trailing slash on an agent URL is normalised away', () => {
   const first = servers.find((s) => s.name === 'p');
   assert.ok(first);
   assert.equal(first.baseUrl, 'http://127.0.0.1:8300');
+});
+
+test('DISCORD_GUILD_ID accepts one or a comma-separated list, fail-loud if empty (stopgap)', () => {
+  assert.deepEqual(parseGuildIds({ DISCORD_GUILD_ID: 'g1' }), ['g1']);
+  assert.deepEqual(parseGuildIds({ DISCORD_GUILD_ID: ' g1 , g2 ' }), ['g1', 'g2'], 'trims and splits');
+  for (const bad of [undefined, '', '   ', ' , ']) {
+    assert.throws(() => parseGuildIds({ DISCORD_GUILD_ID: bad as string }), /DISCORD_GUILD_ID/);
+  }
+  // A two-guild value flows through loadConfig into discordGuildIds.
+  const config = loadConfig({ ...complete, DISCORD_GUILD_ID: 'a,b' });
+  assert.deepEqual(config.discordGuildIds, ['a', 'b']);
 });
 
 test('required/requiredPositiveInt name the variable in the error', () => {

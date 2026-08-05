@@ -57,7 +57,14 @@ export type ControlledServer = GameServer | MediaServer;
 export interface OrchestratorConfig {
   readonly discordBotToken: string;
   readonly discordApplicationId: string;
-  readonly discordGuildId: string;
+  /**
+   * The guild(s) whose members may command this orchestrator. `DISCORD_GUILD_ID` is
+   * a comma-separated list; commands register to each and interactions from any other
+   * guild are ignored. **Temporary stopgap** — the single "one private control
+   * surface" model (FR-001) is widened here only so the same commands appear in two
+   * private guilds at once; proper per-tenant isolation is the next spec. Never empty.
+   */
+  readonly discordGuildIds: readonly string[];
   /** Every server this orchestrator controls, keyed by name. Never empty. */
   readonly servers: readonly ControlledServer[];
   /**
@@ -128,11 +135,27 @@ export function parseAgents(env: NodeJS.ProcessEnv = process.env): readonly Cont
   });
 }
 
+/**
+ * Parse `DISCORD_GUILD_ID` as a comma-separated list of guild ids (one is the common
+ * case; two is the stopgap). Fail loud if it is missing/blank or lists nothing — an
+ * empty set would register no commands anywhere and silently ignore every interaction.
+ */
+export function parseGuildIds(env: NodeJS.ProcessEnv): string[] {
+  const ids = required('DISCORD_GUILD_ID', env)
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (ids.length === 0) {
+    throw new Error('DISCORD_GUILD_ID must list at least one guild id.');
+  }
+  return ids;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): OrchestratorConfig {
   return {
     discordBotToken: required('DISCORD_BOT_TOKEN', env),
     discordApplicationId: required('DISCORD_APPLICATION_ID', env),
-    discordGuildId: required('DISCORD_GUILD_ID', env),
+    discordGuildIds: parseGuildIds(env),
     servers: parseAgents(env),
     followupTimeoutMs: requiredPositiveInt('FOLLOWUP_TIMEOUT_MS', env),
   };

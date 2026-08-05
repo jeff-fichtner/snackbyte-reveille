@@ -98,10 +98,14 @@ const commands = buildCommands();
 
 export async function registerCommands(): Promise<void> {
   const rest = new REST({ version: '10' }).setToken(config.discordBotToken);
-  await rest.put(
-    Routes.applicationGuildCommands(config.discordApplicationId, config.discordGuildId),
-    { body: commands },
-  );
+  // Register the identical command set to each configured guild, so every one of them
+  // shows the same commands (the stopgap: two private guilds, one bot).
+  for (const guildId of config.discordGuildIds) {
+    await rest.put(
+      Routes.applicationGuildCommands(config.discordApplicationId, guildId),
+      { body: commands },
+    );
+  }
 }
 
 // No intents: slash commands arrive as interactions over the gateway, and this bot
@@ -115,14 +119,13 @@ client.once('clientReady', () => {
 client.on('interactionCreate', (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
-  // FR-001's "any member of the Discord server" means THIS server. The whole
-  // justification for having no authorization is that the guild is private and
-  // trusted (spec Assumptions) — so exactly one guild may command exactly one
-  // game server. Commands are registered guild-scoped, which already achieves
-  // that; this makes it explicit rather than incidental, because the bot can sit
-  // in other servers (a test guild, say) and a stray registration there would
-  // otherwise create a second live control surface for the same host.
-  if (interaction.guildId !== config.discordGuildId) {
+  // FR-001's "any member of the Discord server" means a CONFIGURED server. The whole
+  // justification for having no authorization is that those guilds are private and
+  // trusted (spec Assumptions). The bot can sit in other servers (a stray one, a test
+  // guild), and a command arriving from any guild NOT in the configured set is ignored
+  // — otherwise it would be a live control surface for the same host. (Stopgap: the
+  // set is normally one guild; here it is two, pending the per-tenant spec.)
+  if (interaction.guildId === null || !config.discordGuildIds.includes(interaction.guildId)) {
     process.stdout.write(
       `ignored /${interaction.commandName} from unconfigured guild ${interaction.guildId ?? 'DM'}\n`,
     );
