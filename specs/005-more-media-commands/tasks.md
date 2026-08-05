@@ -109,8 +109,8 @@ it is still the reason, not reconstructed afterwards.
 
 ### Implementation for User Story 3
 
-- [ ] T020 [US3] Unit-test scoping in `orchestrator/src/commands.test.ts` — `buildCommands` for a **media-less** tenant offers **none** of `/next`, `/previous`, `/forward`, `/back` (004 FR-003, SC-005); a media-only tenant gets all four **plus** `/pause`/`/play`/`/status` and **no** game verbs; extend the existing 004 scoping tests rather than adding a parallel set.
-- [ ] T021 [US3] Unit-test isolation in `orchestrator/src/commands.test.ts` — a control issued in one tenant reaches **only** that tenant's media target, and another tenant's target is **unknown**, never routed (004 FR-002). Assert the four new handlers take a tenant-scoped `agents` map, never a global one — the property that makes isolation structural.
+- [X] T020 [US3] Unit-test scoping in `orchestrator/src/commands.test.ts` — `buildCommands` for a **media-less** tenant offers **none** of `/next`, `/previous`, `/forward`, `/back` (004 FR-003, SC-005); a media-only tenant gets all four **plus** `/pause`/`/play`/`/status` and **no** game verbs; extend the existing 004 scoping tests rather than adding a parallel set.
+- [X] T021 [US3] Unit-test isolation in `orchestrator/src/commands.test.ts` — a control issued in one tenant reaches **only** that tenant's media target, and another tenant's target is **unknown**, never routed (004 FR-002). Assert the four new handlers take a tenant-scoped `agents` map, never a global one — the property that makes isolation structural.
 
 **Checkpoint**: The new surface inherits 004's isolation, proven rather than assumed.
 

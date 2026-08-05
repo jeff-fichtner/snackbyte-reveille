@@ -560,6 +560,64 @@ test('nothing self-issues — no media path schedules a command (FR-008)', () =>
   );
 });
 
+// ── 005 / US3: the new surface inherits 004's isolation ──────────────────────
+
+test('a media-LESS tenant is offered NONE of the four new controls (004 FR-003, SC-005)', () => {
+  const gameOnly = buildCommands([
+    { name: 'palworld', baseUrl: 'http://x', kind: 'game', publicPort: 8211 },
+    { name: 'satisfactory', baseUrl: 'http://y', kind: 'game', publicPort: 7777 },
+  ]) as unknown as Cmd[];
+  const names = gameOnly.map((c) => c.name);
+
+  // Zero of the four, and zero of 003's two — a guild with no player cannot even pick a
+  // media command, so there is nothing to route and nothing to refuse at runtime.
+  for (const media of ['next', 'previous', 'forward', 'back', 'pause', 'play']) {
+    assert.ok(!names.includes(media), `/${media} must not be offered without a media target`);
+  }
+  assert.deepEqual(names.sort(), ['address', 'start', 'status', 'stop']);
+});
+
+test('the four new controls reach ONLY their own tenant’s media target (004 FR-002)', () => {
+  // Two tenants, each with its own player, names deliberately different so a leak would be
+  // visible. Every media handler resolves through `routeToAgent` against the map it is
+  // handed — isolation is a property of WHICH MAP arrives, not of a filter.
+  const aAgents = new Map([['vlc', new AgentClient('http://127.0.0.1:8302')]]);
+  const bAgents = new Map([['projector', new AgentClient('http://127.0.0.1:8402')]]);
+
+  assert.ok('agent' in routeToAgent('vlc', aAgents));
+  const leaked = routeToAgent('projector', aAgents);
+  assert.ok('reply' in leaked, 'another tenant’s player must not resolve to an agent');
+  assert.equal(leaked.reply.tone, 'refused');
+  // The refusal echoes the name the CALLER typed — that is their own input, not
+  // disclosure, and it never confirms the name exists anywhere else. What must not leak is
+  // the other tenant's ADDRESS, and its valid list must offer only this tenant's targets.
+  assert.doesNotMatch(leaked.reply.text, /8402/, 'no other tenant’s address may leak');
+  const offered = leaked.reply.text.slice(leaked.reply.text.indexOf('Try:'));
+  assert.match(offered, /vlc/, 'the refusal offers this tenant’s own target');
+  assert.doesNotMatch(offered, /projector/, 'the valid list must not name another tenant’s target');
+
+  assert.ok('agent' in routeToAgent('projector', bAgents));
+  assert.ok('reply' in routeToAgent('vlc', bAgents));
+});
+
+test('every media handler takes a tenant-scoped agents map — isolation is structural', () => {
+  // The property that makes US3 inherited rather than re-implemented: no media handler can
+  // reach a global registry, because there is no parameter through which one could arrive.
+  // If a future edit introduced one, this is what would notice.
+  const src = readFileSync(fileURLToPath(new URL('./commands.ts', import.meta.url)), 'utf8');
+  for (const handler of ['handlePause', 'handleResume', 'handleSeek', 'handleStep']) {
+    const from = src.indexOf(`export async function ${handler}(`);
+    assert.notEqual(from, -1, `${handler} must exist`);
+    const params = src.slice(from, src.indexOf(')', from));
+    assert.match(
+      params,
+      /agents: ReadonlyMap<string, AgentClient>/,
+      `${handler} must receive its tenant's agents map explicitly`,
+    );
+  }
+  assert.doesNotMatch(src, /^const \w*[Aa]gents\s*=/m, 'no module-level agent registry may exist');
+});
+
 test('isolation: another tenant’s target is UNKNOWN to this tenant, never routed (FR-002)', () => {
   // Guild A's map holds only palworld. A command naming satisfactory (guild B's target)
   // is refused as unknown — it cannot be routed, because B's target is not in A's map.
