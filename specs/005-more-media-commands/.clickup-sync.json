@@ -14,8 +14,8 @@
   },
   "card": {
     "id": "86bb8p9wb",
-    "hash": "sha256:8dbcc90ed02209713cfb429f2d2fee6555cf578fe6c8ee49355def82201181da",
-    "provenanceHash": "sha256:5780cd5b9f71ffb369ec5bbe2dad83c9877f9b2f7aaf67748bb69f1d7cb392bb"
+    "hash": "sha256:6c5edbd765d11aeac1d7f19405b9d222835d0406cffa05981c8e7b6fcc406006",
+    "provenanceHash": "sha256:1e5378e43e470bbef5265df252c28a0204e126f6801a4e4e9b7d8ce3340359db"
   },
   "userStories": [
     {
@@ -28,21 +28,22 @@
       ]
     },
     {
-      "us": "US1",
-      "id": "86bb8pavt",
-      "hash": "sha256:d6ae5432bb178bf3be6a506e8dd7c6ac14cd7221bcfb880d345509dbee4cadad",
-      "dependsOn": []
-    },
-    {
       "us": "US2",
       "id": "86bb8pavy",
       "hash": "sha256:413977b4fe7392bcb63f069d783480b89c933b1f4a0c79d66fa0112b6c651964",
       "dependsOn": [
         "US1"
       ]
+    },
+    {
+      "us": "US1",
+      "id": "86bb8pavt",
+      "hash": "sha256:38b7aa5d09819fd70651bd9c3f5ab37246ede9533e1c7e027fa73adaeabe0ac6",
+      "dependsOn": []
     }
   ],
   "lifecycle": {
-    "analyzed": true
+    "analyzed": true,
+    "implementStarted": true
   }
 }

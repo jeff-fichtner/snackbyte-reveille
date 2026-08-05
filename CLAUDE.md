@@ -11,12 +11,18 @@ chosen and why. The rules those decisions must not violate are in
 An on-demand control plane for **controllable targets on a host** — game servers
 first, and since 003 anything else a host can toggle. Discord slash commands
 `/start`, `/stop`, `/status`, `/address` control **two** dedicated game servers —
-Palworld and Satisfactory, each named as a subcommand — and `/pause`, `/play`
-control **one** media player, VLC (bare commands: there is one media target). A
-human decides when; that is the whole policy. A second game was a new *row*, not a
-new kind (DECISIONS 002). VLC was a new *kind* — a second adapter kind (`media`)
-alongside `game`, with its own verbs — but still one agent at one more address
-(DECISIONS 017).
+Palworld and Satisfactory, each named as a subcommand — and `/pause`, `/play`,
+`/next`, `/previous`, `/forward [seconds]`, `/back [seconds]` control **one** media
+player, VLC (bare commands: there is one media target). A human decides when; that is
+the whole policy. A second game was a new *row*, not a new kind (DECISIONS 002). VLC
+was a new *kind* — a second adapter kind (`media`) alongside `game`, with its own
+verbs — but still one agent at one more address (DECISIONS 017). 005 added four more
+media commands without adding a kind, a component, or a dependency.
+
+**Six media commands, five seam verbs.** `/forward` and `/back` are one operation over
+a signed magnitude and share `POST /seek`; the orchestrator negates for `/back`. That
+is why `/back -30` seeks *forward* — the amount is passed through exactly as given, and
+the reply says so rather than hiding it (FR-005).
 
 ## Layout
 
@@ -66,12 +72,22 @@ same box (FR-013, spec Assumptions).
 
 **The orchestrator and agent talk over HTTP, always**, even sharing a machine.
 Never import across those packages; eslint blocks it. The seam is the one
-genuinely irreversible decision here (Constitution I). It has **five** verbs:
+genuinely irreversible decision here (Constitution I). It has **eight** verbs:
 `POST /start`, `POST /stop`, `GET /status` (games; `/status` added 002), and
-`POST /pause`, `POST /play` (media; added 003, additive — every earlier field
-unchanged, seam v3). No target id ever enters a path or body — an agent's URL *is*
-its identity. An agent answers only its kind's verbs (a `/start` to a media agent is
-a 404), and the orchestrator never sends the wrong ones.
+`POST /pause`, `POST /play` (media; added 003), `POST /next`, `POST /previous`,
+`POST /seek?seconds=<signed int>` (media; added 005 — seam v4, additive, every
+earlier field and verb unchanged). No target id ever enters a path, query, or body —
+an agent's URL *is* its identity. An agent answers only its kind's verbs (a `/start`
+to a media agent is a 404), and the orchestrator never sends the wrong ones.
+
+**`seconds` is the seam's only parameter, and the rule that admits it is narrow.**
+Every verb before 005 was a bare POST; nothing had ever crossed in a request. The
+rule: **a parameter of the *operation* may cross; a name for *which target* may not**
+(DECISIONS 023). `seconds` says how far, never which player. This does **not** license
+a `target`/`name`/`id`/`kind` parameter — that stays an architecture change. The
+30-second default lives **only** in the orchestrator; the agent has none and answers
+`400` on a missing or non-integer value, because a member omitting an argument is a
+documented choice while the orchestrator omitting it would be a bug.
 
 **Only an adapter file may know its target.** `agent/src/palworld.ts` and
 `agent/src/satisfactory.ts` implement `GameAdapter`; `agent/src/vlc.ts` implements
@@ -87,8 +103,19 @@ adapter-agnostic. A new target of an existing kind is a new adapter plus one
 from `/stop`. A stop that cannot be graceful is not a stop — it fails and leaves the
 server running (Constitution IV). Each adapter's source is tested for this and for
 save-before-shutdown: `palworld.test.ts` **and** `satisfactory.test.ts`. Media has
-no `/stop`; `vlc.test.ts` bans OS kill **and** any content/playlist/seek command —
-Reveille toggles playback, never chooses what plays (FR-004, FR-011).
+no `/stop`; `vlc.test.ts` bans OS kill **and** every content command.
+
+**The media ban is "no *knowledge* of content", not "no *movement* through it" (005,
+DECISIONS 022).** 003's rule was "Reveille toggles playback, never chooses what
+plays"; 005 narrowed it. **Permitted**: blind relative movement — `pl_next`,
+`pl_previous`, and a *relative* `seek`, none of which needs to know what is loaded.
+**Still forbidden**: anything that does — `pl_jump` (a *nominated* item, the sharpest
+contrast with `pl_next`), `pl_play`, `in_play`, `in_enqueue`, `pl_empty`,
+`pl_delete`, plus volume, `pl_stop`, and OS kill. **Newly forbidden**: an *absolute*
+seek. M0 measured a bare `val=30` seeking *to* 0:30 instead of forward 30s — silent
+and plausible-looking — so the adapter always sends an explicit sign (`%2B` or `-`)
+and `vlc.test.ts` bans the unsigned form (FR-011). The check ends up stricter than
+003's, not looser.
 
 **`/status` is read-only and must not sit on the command mutex.** The agent
 serializes the acting verbs (`/start`·`/stop`, or `/pause`·`/play` for media —

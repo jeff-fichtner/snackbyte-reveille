@@ -116,12 +116,41 @@ it is still the reason, not reconstructed afterwards.
 
 ---
 
+## T026 status — what was verified automatically, and what is left
+
+**Done automatically**, against a **real** agent talking to a **real** VLC (two scratch
+headless instances on their own ports; the operator's player was never touched):
+
+| Quickstart | Result |
+|---|---|
+| §1 unit gate | ✅ 114 tests, typecheck + lint clean |
+| §2 loopback probes | ✅ `/seek?seconds=30` moved VLC **time 30 → 60**; `-30` moved **60 → 30**; `/next` stepped **plid 5 → 4**; `/previous` **4 → 5** |
+| §2 caller-bug cases | ✅ missing / blank / `abc` / `1.5` each **400**, naming `seconds`, never defaulted |
+| §2 read-only status | ✅ `{"state":"playing"}` |
+| §5 refusal parity | ✅ all six media verbs **409 / `stopped`** against an empty player |
+| §8 kinds never cross | ✅ a media agent **404**s `/start` and `/stop`; a game agent 404s all three new verbs (unit) |
+| §8 contract untouched | ✅ `contract/src/index.ts` unchanged |
+| §9 homepage | ✅ describes the four controls; scanned for and free of any capability the system lacks |
+
+**Left for a human** — irreducible, needs a live Discord guild and eyes on a player:
+
+- §3/§4 issuing the commands **from Discord** and watching the show move.
+- §6 opening the **command picker in two guilds** to confirm scoping visually.
+- §7 judging **reply wording** for content leakage in context.
+
+One thing to know when running §5 from Discord: `/play`'s refusal reads *"Nothing is
+loaded — nothing to resume."* while the other five read *"Nothing is playing — nothing
+to …"*. That wording is **003's** and FR-018 forbids changing it; the refusals match in
+tier, status and shape, which is what SC-003 asks for.
+
+---
+
 ## Phase 6: Polish & Cross-Cutting Concerns
 
-- [ ] T022 [P] Update `agent/src/vlc.test.ts`'s file header and the ban-list comment to state the **new** boundary — permitted: blind relative movement (`pl_next`, `pl_previous`, relative `seek`); forbidden: anything naming, selecting, listing, or jumping to content, plus absolute seek, volume, stop, and OS termination — citing DECISIONS 022. The comment must not still claim "Reveille toggles playback" as the whole rule.
-- [ ] T023 [P] Update `CLAUDE.md` — the media target now answers **five** verbs (`/pause`, `/play`, `/next`, `/previous`, `/seek`) plus `/status`; the seam is **v4** and carries its **first operation parameter** (`seconds`, with the operation-vs-identifier rule); the `vlc.test.ts` ban is now *no knowledge of content* rather than *no movement through content*; and note that `contract/src/index.ts` is unchanged.
-- [ ] T024 [P] Update `site/index.html` per the v1.2.0 homepage rule (**FR-020, SC-008**) — describe the four new controls, and describe **no** capability the system does not have: it must not imply Reveille can choose, browse, search, or show what plays. Land the minimal honest change; do not invent user-facing behaviour 005 does not add.
-- [ ] T025 Run `npm run check:all` and confirm green — typecheck, lint, and the full `node:test` suite, including the redrawn ban list and the no-bounds assertion.
+- [X] T022 [P] Update `agent/src/vlc.test.ts`'s file header and the ban-list comment to state the **new** boundary — permitted: blind relative movement (`pl_next`, `pl_previous`, relative `seek`); forbidden: anything naming, selecting, listing, or jumping to content, plus absolute seek, volume, stop, and OS termination — citing DECISIONS 022. The comment must not still claim "Reveille toggles playback" as the whole rule.
+- [X] T023 [P] Update `CLAUDE.md` — the media target now answers **five** verbs (`/pause`, `/play`, `/next`, `/previous`, `/seek`) plus `/status`; the seam is **v4** and carries its **first operation parameter** (`seconds`, with the operation-vs-identifier rule); the `vlc.test.ts` ban is now *no knowledge of content* rather than *no movement through content*; and note that `contract/src/index.ts` is unchanged.
+- [X] T024 [P] Update `site/index.html` per the v1.2.0 homepage rule (**FR-020, SC-008**) — describe the four new controls, and describe **no** capability the system does not have: it must not imply Reveille can choose, browse, search, or show what plays. Land the minimal honest change; do not invent user-facing behaviour 005 does not add.
+- [X] T025 Run `npm run check:all` and confirm green — typecheck, lint, and the full `node:test` suite, including the redrawn ban list and the no-bounds assertion.
 - [ ] T026 Run the full [quickstart.md](quickstart.md) — the unit gate (§1), the **direct loopback probes** including the `400`-on-missing-`seconds` cases (§2), US1 seek incl. unbounded and negative pass-through (§3), US2 stepping and the boundary case (§4), the **six-command refusal parity** with nothing loaded (§5), US3 scoping in two guilds (§6), the **content-leak audit** across every reply and command description (§7), the regression checks incl. **`contract/src/index.ts` unchanged** and a game agent 404ing the three new verbs (§8), and the homepage (§9). Also confirm in §8 that **no content is streamed, recorded, or relayed** — only control instructions travel (FR-012), which holds because this feature adds no content-transport surface. Promptness (FR-007, SC-001) is inherited from the existing `deferReply()` and is observed here rather than separately built. Human-in-the-loop for the visual and wording checks.
 
 ---

@@ -7,10 +7,30 @@ import type { AddressInfo } from 'node:net';
 import { createVlcAdapter } from './vlc.ts';
 import type { VlcConfig } from './config.ts';
 
-// The VLC adapter is the one file that could reach past "toggle playback" into
+// The VLC adapter is the one file that could reach past its permitted verbs into
 // killing a process or choosing content, so those bans are enforced against source
 // rather than trusted to review — mirroring palworld.ts / satisfactory.ts
-// (Constitution IV; FR-004, FR-011, T011).
+// (Constitution IV; FR-004, FR-011).
+//
+// 005 MOVED the line this file draws, and narrowed it in one dimension while
+// tightening it in another (DECISIONS 022). It is no longer "Reveille toggles
+// playback": the rule is now **no KNOWLEDGE of content**, not **no MOVEMENT through
+// content**.
+//
+//   PERMITTED (new)   blind relative movement — `pl_next`, `pl_previous`, and a
+//                     RELATIVE `seek`. Each needs to know nothing about what is loaded.
+//   FORBIDDEN (still) anything requiring knowledge of content: `pl_jump` (a NOMINATED
+//                     item — the sharpest contrast with `pl_next`), `pl_play`,
+//                     `in_play`, `in_enqueue`, `pl_empty`, `pl_delete`; plus volume,
+//                     `pl_stop`, and OS-level termination.
+//   FORBIDDEN (new)   ABSOLUTE seek. M0 §3 measured a bare `val=30` seeking *to* 0:30
+//                     rather than forward 30s — a silent, plausible-looking wrong
+//                     action. Relative-vs-absolute is the only boundary 005 creates, so
+//                     it is the one that must be machine-enforced (FR-011 mandates it).
+//
+// Source bans prove a forbidden call is ABSENT. They cannot prove the permitted one is
+// spelled correctly, so the two behavioural tests below stand a throwaway HTTP server in
+// for VLC and pin the exact request line the adapter emits.
 const source = readFileSync(fileURLToPath(new URL('./vlc.ts', import.meta.url)), 'utf8');
 
 // Strip comments — they name the forbidden calls and commands to explain the bans.

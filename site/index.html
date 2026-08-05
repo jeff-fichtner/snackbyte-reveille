@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Reveille — control your servers and the show from Discord</title>
-<meta name="description" content="Reveille turns self-hosted game servers on and off — and pauses the show — with named slash commands, from any device. Palworld, Satisfactory, and VLC. A human decides when; that's the whole policy.">
+<meta name="description" content="Reveille turns self-hosted game servers on and off — and pauses, skips and rewinds the show — with named slash commands, from any device. Palworld, Satisfactory, and VLC. A human decides when; that's the whole policy.">
 <link rel="icon" href="assets/reveille-icon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -82,7 +82,7 @@
         <span style="width:6px;height:6px;border-radius:99px;background:#E8A13A;display:inline-block;"></span>on-demand control plane
       </div>
       <h1 class="hero" style="font-size:64px;line-height:1.03;letter-spacing:-.02em;margin:26px 0 0;max-width:15ch;font-weight:700;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">Start the server. Pause the show. From Discord.</h1>
-      <p style="font-size:19px;line-height:1.6;color:#98a1b2;max-width:58ch;margin:24px 0 0;">Reveille turns self-hosted game servers on and off — and now pauses the show on the home machine — with named slash commands, from any device, with nothing to install but a bot. Palworld, Satisfactory, and VLC. A human decides when; that's the whole policy.</p>
+      <p style="font-size:19px;line-height:1.6;color:#98a1b2;max-width:58ch;margin:24px 0 0;">Reveille turns self-hosted game servers on and off — and now pauses, skips and rewinds the show on the home machine — with named slash commands, from any device, with nothing to install but a bot. Palworld, Satisfactory, and VLC. A human decides when; that's the whole policy.</p>
       <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:34px;">
         <a href="#dashboard" style="display:inline-flex;align-items:center;gap:10px;background:#E8A13A;color:#141007;font-weight:600;padding:14px 22px;border-radius:11px;font-size:15px;">Try the dashboard →</a>
         <a href="#how" style="display:inline-flex;align-items:center;gap:10px;color:#e7e9ef;border:1px solid #2b3242;padding:14px 22px;border-radius:11px;font-size:15px;font-weight:500;">See the flow</a>
@@ -96,7 +96,7 @@
         </div>
         <div style="flex:1;min-width:150px;padding:20px 24px;border-right:1px solid #1d2230;">
           <div style="font-family:'IBM Plex Mono',monospace;font-size:26px;color:#e7e9ef;font-weight:600;">~2s</div>
-          <div style="font-size:13px;color:#98a1b2;margin-top:4px;">to pause · from a phone</div>
+          <div style="font-size:13px;color:#98a1b2;margin-top:4px;">to pause or rewind · from a phone</div>
         </div>
         <div style="flex:1;min-width:150px;padding:20px 24px;border-right:1px solid #1d2230;">
           <div style="font-family:'IBM Plex Mono',monospace;font-size:26px;color:#e7e9ef;font-weight:600;">0</div>
@@ -116,7 +116,7 @@
       <div>
         <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.14em;color:#E8A13A;text-transform:uppercase;">The whole experience</div>
         <h2 class="sec" style="font-size:38px;line-height:1.1;letter-spacing:-.015em;margin:14px 0 0;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-weight:700;">Name a server. No terminal, no admin console.</h2>
-        <p style="font-size:16px;line-height:1.65;color:#98a1b2;margin:20px 0 0;">Either player types <code style="font-family:'IBM Plex Mono',monospace;color:#E8A13A;background:rgba(232,161,58,.08);padding:2px 7px;border-radius:6px;">/start satisfactory</code> from a phone; a moment later the bot posts again to say it's actually up, and they join. <code style="font-family:'IBM Plex Mono',monospace;color:#E8A13A;background:rgba(232,161,58,.08);padding:2px 7px;border-radius:6px;">/stop satisfactory</code> saves the world and shuts it down. And when someone runs to the store mid-episode, <code style="font-family:'IBM Plex Mono',monospace;color:#E8A13A;background:rgba(232,161,58,.08);padding:2px 7px;border-radius:6px;">/pause</code> holds the show and <code style="font-family:'IBM Plex Mono',monospace;color:#E8A13A;background:rgba(232,161,58,.08);padding:2px 7px;border-radius:6px;">/play</code> picks it back up — one tap, no argument. <code style="font-family:'IBM Plex Mono',monospace;color:#E8A13A;background:rgba(232,161,58,.08);padding:2px 7px;border-radius:6px;">/status</code> says what's happening across every target.</p>
+        <p style="font-size:16px;line-height:1.65;color:#98a1b2;margin:20px 0 0;">Either player types <code style="font-family:'IBM Plex Mono',monospace;color:#E8A13A;background:rgba(232,161,58,.08);padding:2px 7px;border-radius:6px;">/start satisfactory</code> from a phone; a moment later the bot posts again to say it's actually up, and they join. <code style="font-family:'IBM Plex Mono',monospace;color:#E8A13A;background:rgba(232,161,58,.08);padding:2px 7px;border-radius:6px;">/stop satisfactory</code> saves the world and shuts it down. And when someone runs to the store mid-episode, <code style="font-family:'IBM Plex Mono',monospace;color:#E8A13A;background:rgba(232,161,58,.08);padding:2px 7px;border-radius:6px;">/pause</code> holds the show and <code style="font-family:'IBM Plex Mono',monospace;color:#E8A13A;background:rgba(232,161,58,.08);padding:2px 7px;border-radius:6px;">/play</code> picks it back up — one tap, no argument. When somebody talks over a line, <code style="font-family:'IBM Plex Mono',monospace;color:#E8A13A;background:rgba(232,161,58,.08);padding:2px 7px;border-radius:6px;">/back</code> jumps back thirty seconds — or <code style="font-family:'IBM Plex Mono',monospace;color:#E8A13A;background:rgba(232,161,58,.08);padding:2px 7px;border-radius:6px;">/back 90</code> if it needs longer — and <code style="font-family:'IBM Plex Mono',monospace;color:#E8A13A;background:rgba(232,161,58,.08);padding:2px 7px;border-radius:6px;">/forward</code> goes the other way. When the episode ends, <code style="font-family:'IBM Plex Mono',monospace;color:#E8A13A;background:rgba(232,161,58,.08);padding:2px 7px;border-radius:6px;">/next</code> moves on to whatever was queued up, and <code style="font-family:'IBM Plex Mono',monospace;color:#E8A13A;background:rgba(232,161,58,.08);padding:2px 7px;border-radius:6px;">/previous</code> goes back one. Reveille never sees <i>what</i> is loaded — it steps and seeks blind, and nobody has to get up. <code style="font-family:'IBM Plex Mono',monospace;color:#E8A13A;background:rgba(232,161,58,.08);padding:2px 7px;border-radius:6px;">/status</code> says what's happening across every target.</p>
         <ul style="list-style:none;padding:0;margin:28px 0 0;display:flex;flex-direction:column;gap:16px;">
           <li style="display:flex;gap:13px;align-items:flex-start;"><span style="color:#39d39f;font-family:'IBM Plex Mono',monospace;margin-top:1px;">✔</span><span style="font-size:15px;color:#c6ccd8;line-height:1.55;"><b style="color:#e7e9ef;">A stop never loses the world.</b> If the save can't complete, the server stays up and says so — it will not force-kill to satisfy a stop.</span></li>
           <li style="display:flex;gap:13px;align-items:flex-start;"><span style="color:#39d39f;font-family:'IBM Plex Mono',monospace;margin-top:1px;">✔</span><span style="font-size:15px;color:#c6ccd8;line-height:1.55;"><b style="color:#e7e9ef;">It tells you when it's really up.</b> The first reply says "launching"; a second message follows when the control API confirms it's running — or honestly that it couldn't. Never a claim it can't back.</span></li>
@@ -230,7 +230,7 @@
 
       <div style="margin-top:22px;border:1px dashed #2b3242;border-radius:14px;padding:22px 26px;display:flex;gap:18px;align-items:center;background:rgba(21,25,34,.4);flex-wrap:wrap;">
         <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#E8A13A;flex:0 0 auto;">growth →</div>
-        <p style="margin:0;font-size:15px;color:#c6ccd8;line-height:1.55;flex:1;min-width:260px;">More rows, never new components. <b style="color:#e7e9ef;">Satisfactory joined Palworld as a pure row</b> — one more adapter, one more address, no new kind of thing. <b style="color:#e7e9ef;">VLC went one notch further</b>: pausing playback isn't a server lifecycle, so it earned its own adapter <i>kind</i> and its own verbs — but it is still one agent at one more address, reusing the whole seam. No new component was needed. And a <b style="color:#e7e9ef;">private guild is a row too</b>: each Discord server the bot serves is a tenant, scoped to its own targets and isolated from every other — one bot, many groups, none able to see or touch another's. If a capability ever needs a fourth kind of <i>component</i> rather than another row, something was drawn wrong.</p>
+        <p style="margin:0;font-size:15px;color:#c6ccd8;line-height:1.55;flex:1;min-width:260px;">More rows, never new components. <b style="color:#e7e9ef;">Satisfactory joined Palworld as a pure row</b> — one more adapter, one more address, no new kind of thing. <b style="color:#e7e9ef;">VLC went one notch further</b>: pausing playback isn't a server lifecycle, so it earned its own adapter <i>kind</i> and its own verbs — but it is still one agent at one more address, reusing the whole seam. No new component was needed. <b style="color:#e7e9ef;">Skipping and rewinding were narrower still</b> — four more commands on that same kind, at that same address: a column, not a row, and not a new kind of anything. And a <b style="color:#e7e9ef;">private guild is a row too</b>: each Discord server the bot serves is a tenant, scoped to its own targets and isolated from every other — one bot, many groups, none able to see or touch another's. If a capability ever needs a fourth kind of <i>component</i> rather than another row, something was drawn wrong.</p>
       </div>
     </div>
   </section>
@@ -241,7 +241,7 @@
       <div style="max-width:60ch;">
         <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.14em;color:#E8A13A;text-transform:uppercase;">Interactive demo</div>
         <h2 class="sec" style="font-size:38px;line-height:1.1;letter-spacing:-.015em;margin:14px 0 0;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;font-weight:700;">The right verbs, for each target.</h2>
-        <p style="font-size:16px;line-height:1.65;color:#98a1b2;margin:18px 0 0;">A simulation running entirely in your browser — nothing is connected to a real host. Switch targets, and each holds its own state: the games take <code style="font-family:'IBM Plex Mono',monospace;color:#E8A13A;">/start</code>·<code style="font-family:'IBM Plex Mono',monospace;color:#E8A13A;">/stop</code>, VLC takes <code style="font-family:'IBM Plex Mono',monospace;color:#E8A13A;">/pause</code>·<code style="font-family:'IBM Plex Mono',monospace;color:#E8A13A;">/play</code>. The refusals below are the real spec (FR-008, FR-017, FR-021, SC-002).</p>
+        <p style="font-size:16px;line-height:1.65;color:#98a1b2;margin:18px 0 0;">A simulation running entirely in your browser — nothing is connected to a real host. Switch targets, and each holds its own state: the games take <code style="font-family:'IBM Plex Mono',monospace;color:#E8A13A;">/start</code>·<code style="font-family:'IBM Plex Mono',monospace;color:#E8A13A;">/stop</code>, VLC takes <code style="font-family:'IBM Plex Mono',monospace;color:#E8A13A;">/pause</code>·<code style="font-family:'IBM Plex Mono',monospace;color:#E8A13A;">/play</code>. The demo covers those; the live bot also takes <code style="font-family:'IBM Plex Mono',monospace;color:#E8A13A;">/next</code>, <code style="font-family:'IBM Plex Mono',monospace;color:#E8A13A;">/previous</code>, <code style="font-family:'IBM Plex Mono',monospace;color:#E8A13A;">/forward</code> and <code style="font-family:'IBM Plex Mono',monospace;color:#E8A13A;">/back</code> on the media target. The refusals below are the real spec (FR-008, FR-017, FR-021, SC-002).</p>
       </div>
 
       <div class="dash-col" style="margin-top:40px;">
@@ -325,6 +325,9 @@
 <script>
 // Simulated control plane, ported from the design's DCLogic component and extended
 // for 003: two game servers (/start·/stop) and one media player, VLC (/pause·/play).
+// 005 added /next, /previous, /forward and /back to the media target. The demo below
+// simulates the play/pause pair only; the prose above says so rather than implying the
+// simulation is the whole surface.
 // Nothing here talks to a real host — each target's state machine and its refusals
 // mirror the spec so the demo cannot claim behaviour the system does not have. One
 // command names its target; one target's command never touches another (FR-021), and
@@ -388,7 +391,7 @@
 
   var lines = [
     { t: '21:00:02', cls: 'muted', msg: 'watson online · palworld + satisfactory + vlc agents on 127.0.0.1' },
-    { t: '21:00:02', cls: 'muted', msg: 'ready — games take /start·/stop · vlc takes /pause·/play · /status spans all' }
+    { t: '21:00:02', cls: 'muted', msg: 'ready — games take /start·/stop · vlc takes /pause·/play·/next·/previous·/forward·/back · /status spans all' }
   ];
 
   function now() { return new Date().toTimeString().slice(0, 8); }
