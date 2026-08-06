@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { SlashCommandBuilder } from 'discord.js';
 import {
   describeStart,
   describeStop,
@@ -806,6 +807,36 @@ test('adding or removing a target changes the listing, with no text edited (FR-0
   ]);
   assert.ok(twoGames.includes('/start satisfactory'));
   assert.equal(twoGames.filter((f) => f.startsWith('/start')).length, 2);
+});
+
+test('a Discord hiccup cannot kill the process — handle() is never left unguarded (T014)', () => {
+  // This is a regression fence around a crash that actually happened: a transient
+  // `10062 Unknown interaction` from `deferReply` -- which runs OUTSIDE handle's own try --
+  // propagated to `void handle(...)`, became an unhandled rejection, and terminated the
+  // orchestrator under Node's default. A bot that dies on a Discord blip is not acceptable.
+  const idx = readFileSync(fileURLToPath(new URL('./index.ts', import.meta.url)), 'utf8');
+
+  // Every `handle(...)` invocation must carry a rejection handler.
+  const bare = idx.match(/void handle\([^)]*\)\s*;/g) ?? [];
+  assert.deepEqual(bare, [], 'handle() must never be invoked without a .catch — an unhandled rejection exits the process');
+  assert.match(idx, /void handle\([^)]*\)\.catch\(/, 'the interaction dispatch needs a rejection handler');
+
+  // ...and the handler itself must not be able to throw, or it recreates the problem.
+  const reporter = idx.slice(idx.indexOf('async function reportFailure'));
+  assert.match(reporter.slice(0, reporter.indexOf('\n}')), /catch\s*\{/, 'reportFailure must swallow its own failure');
+});
+
+test('a subcommand group fails loudly rather than rendering nonsense (T015)', () => {
+  // Nothing registers one today. The guard exists because the alternative is silent-wrong
+  // output — `/media group` would render as `[group]` — and that is the exact failure this
+  // feature exists to prevent. Better a loud error the moment someone adds one.
+  const grouped = new SlashCommandBuilder().setName('media').setDescription('Media commands.');
+  grouped.addSubcommandGroup((g) =>
+    g.setName('seek').setDescription('Seek around.').addSubcommand((s) =>
+      s.setName('forward').setDescription('Jump forward.'),
+    ),
+  );
+  assert.throws(() => toCommandEntries(grouped), /subcommand group/i);
 });
 
 test('nothing self-issues — no listing is produced unasked (FR-016)', () => {

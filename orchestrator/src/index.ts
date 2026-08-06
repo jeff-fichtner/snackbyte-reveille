@@ -113,8 +113,40 @@ client.on('interactionCreate', (interaction) => {
     return;
   }
 
-  void handle(interaction, runtime);
+  // The last line of defence. `handle` does work OUTSIDE its own try — the `/help` branch
+  // and `deferReply()` — and an unhandled rejection here terminates the process under
+  // Node's default. That is not theoretical: a transient `10062 Unknown interaction` from
+  // `deferReply` took this orchestrator down (006 T014). A Discord hiccup must never be
+  // able to kill a long-running bot.
+  void handle(interaction, runtime).catch((error: unknown) => reportFailure(interaction, error));
 });
+
+/**
+ * Tell the member something went wrong, if the interaction can still be answered.
+ *
+ * **Never throws.** It is called from a `.catch`, so throwing would recreate the very
+ * unhandled rejection it exists to prevent.
+ *
+ * An expired or already-consumed interaction (`10062`) genuinely cannot be answered — the
+ * token is gone — so the attempt is allowed to fail quietly. The log line is what survives,
+ * and it is the thing worth having: silence in the channel plus a stack trace in the log
+ * beats a dead process.
+ */
+async function reportFailure(interaction: ChatInputCommandInteraction, error: unknown): Promise<void> {
+  const message = error instanceof Error ? error.message : String(error);
+  process.stderr.write(`/${interaction.commandName} failed: ${message}\n`);
+  try {
+    const text = `Something went wrong handling that.\n> ${message}`;
+    if (interaction.replied || interaction.deferred) {
+      await interaction.editReply(text);
+    } else {
+      await interaction.reply({ content: text, flags: MessageFlags.Ephemeral });
+    }
+  } catch {
+    // The interaction is unusable — expired, or already answered elsewhere. There is
+    // nothing left to say to the member, and this must not escalate.
+  }
+}
 
 async function handle(interaction: ChatInputCommandInteraction, rt: TenantRuntime): Promise<void> {
   // `/help` is answered BEFORE the defer, and this ordering is load-bearing (006).
@@ -213,10 +245,10 @@ async function handle(interaction: ChatInputCommandInteraction, rt: TenantRuntim
     }
   } catch (error: unknown) {
     // A command must never leave the player guessing whether it was received and
-    // acted on (SC-004), so even an unexpected failure gets a reply.
-    const message = error instanceof Error ? error.message : String(error);
-    process.stderr.write(`/${interaction.commandName} failed: ${message}\n`);
-    await interaction.editReply(`Something went wrong handling that.\n> ${message}`);
+    // acted on (SC-004), so even an unexpected failure gets a reply. Delegated so the
+    // reply attempt cannot itself throw — `editReply` fails too if Discord has already
+    // forgotten the interaction, and that must not become an unhandled rejection.
+    await reportFailure(interaction, error);
   }
 }
 

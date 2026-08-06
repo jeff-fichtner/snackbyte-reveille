@@ -160,8 +160,9 @@ export interface CommandEntry {
   readonly description: string;
 }
 
-/** Discord's option type tags. Only the two that appear in this system are named. */
+/** Discord's option type tags. Only the ones this system can encounter are named. */
 const SUBCOMMAND_OPTION = 1;
+const SUBCOMMAND_GROUP_OPTION = 2;
 
 /**
  * Turn one registered command into its **runnable forms** (006 FR-002).
@@ -182,6 +183,18 @@ export function toCommandEntries(command: SlashCommandBuilder): CommandEntry[] {
     options?: { type: number; name: string; description: string; required?: boolean }[];
   };
   const options = json.options ?? [];
+
+  // A nested `/cmd group sub` would otherwise fall through to the argument branch below
+  // and render as `[group]` — plausible-looking and wrong, which is the one failure this
+  // feature exists to prevent. Nothing registers a group today, so rather than build
+  // rendering for a shape that does not exist (Constitution III), fail loudly the moment
+  // one appears (006 T015).
+  if (options.some((o) => o.type === SUBCOMMAND_GROUP_OPTION)) {
+    throw new Error(
+      `/${json.name} uses a subcommand group, which the command listing cannot render. ` +
+        `Teach toCommandEntries to expand groups before registering one.`,
+    );
+  }
 
   const subcommands = options.filter((o) => o.type === SUBCOMMAND_OPTION);
   if (subcommands.length > 0) {
