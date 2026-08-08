@@ -115,7 +115,7 @@ The orchestrator is running (`reveille#6131`), so `/help` is ready to try.
 - [X] T010 [P] Update `site/index.html` per the v1.2.0 homepage rule (**FR-021, SC-010**) — describe `/help` as what it is: a list of the commands available *in that server*. Describe **no** capability the system lacks; in particular do not imply it reports target state, which is `/status`. Land the minimal honest change.
 - [X] T011 [P] Update `CLAUDE.md` — add `/help` to the command surface described in "What this is", and note that it is the first command that contacts **no agent**, so it neither defers nor depends on anything being reachable.
 - [X] T012 Run `npm run check:all` and confirm green — typecheck, lint, and the full `node:test` suite including the bijection.
-- [ ] T013 Run the full [quickstart.md](quickstart.md) — the unit gate (§1), the **drift-resistance walkthrough** (§2), US1 in a real guild (§3), scoping across two guilds (§4), the **ephemeral check with someone else watching** (§5), availability-not-readiness with a target switched off (§6), the content-leak audit (§7), regression incl. **`git diff` on `contract/` and `agent/` being empty** (§8), and the homepage (§9). Human-in-the-loop for §5 and the wording judgements.
+- [X] T013 Run the full [quickstart.md](quickstart.md) — the unit gate (§1), the **drift-resistance walkthrough** (§2), US1 in a real guild (§3), scoping across two guilds (§4), the **ephemeral check with someone else watching** (§5), availability-not-readiness with a target switched off (§6), the content-leak audit (§7), regression incl. **`git diff` on `contract/` and `agent/` being empty** (§8), and the homepage (§9). Human-in-the-loop for §5 and the wording judgements.
 
 ---
 
