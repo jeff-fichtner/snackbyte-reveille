@@ -154,8 +154,9 @@ async function handleResume(adapter: MediaAdapter): Promise<Outcome> {
     return { status: 500, body: { state: 'error', message } };
   }
   // Observed BEFORE acting, and reported as an observation — not a claim that resuming
-  // produced it (FR-010).
-  return { status: 200, body: { state: 'playing' } };
+  // produced it (FR-010). The already-playing branch above reports the same detail, so
+  // both outcomes of /play read alike.
+  return { status: 200, body: { state: 'playing', ...detail(seen) } };
 }
 
 /**
@@ -316,9 +317,14 @@ async function handleSeek(adapter: MediaAdapter, req: IncomingMessage): Promise<
     const message = error instanceof Error ? error.message : String(error);
     return { status: 500, body: { state: 'error', message } };
   }
-  // 200 means ISSUED, never achieved: the position is not read back (FR-003), and M0 §5
-  // showed VLC accepts absurd positions literally. `state` is what it was, not a claim.
-  return { status: 200, body: { state } };
+  // Look AFTER seeking, because "where the cursor is now" is the useful answer and the
+  // pre-seek reading describes where it no longer is (007 FR-008). Reporting it is not
+  // claiming it: 200 still means ISSUED, never achieved — M0 §5 measured VLC accepting
+  // absurd positions literally, and nothing here checks or corrects that (FR-003 as
+  // corrected by DECISIONS 024). A read that fails must not turn a completed seek into an
+  // error, so it falls back to the state already in hand.
+  const after = await adapter.observe().catch(() => undefined);
+  return { status: 200, body: { state: after?.state ?? state, ...(after ? detail(after) : {}) } };
 }
 
 /** GET /status — the target's state, read-only. Changes nothing (FR-022, SC-005). */

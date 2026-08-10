@@ -447,3 +447,46 @@ test('007 T031 — a MULTI-item step is indivisible, and /status still answers (
     await close();
   }
 });
+
+test('007 — EVERY media verb reports what it observed, none silently omits it (FR-008)', async () => {
+  // Written as a sweep rather than per-verb because the bug it exists for was an OMISSION:
+  // /play's acting branch carried a comment claiming it reported detail while the code did
+  // not, and /seek reported nothing at all. Checking verbs one at a time is exactly how
+  // both went unnoticed — a per-verb test only fails for the verb somebody remembered.
+  const seen = { state: 'playing' as const, title: 'Some Show', elapsedSeconds: 61, totalSeconds: 125 };
+
+  // /play acts only when paused, so it needs its own stub; the rest act while playing.
+  const cases: { verb: string; state: 'playing' | 'paused' }[] = [
+    { verb: '/pause', state: 'playing' },
+    { verb: '/play', state: 'paused' },
+    { verb: '/seek?seconds=30', state: 'playing' },
+    { verb: '/next?count=1', state: 'playing' },
+    { verb: '/previous?count=1', state: 'playing' },
+  ];
+
+  for (const { verb, state } of cases) {
+    const { base, close } = await startServer(
+      mediaStub(state, { observe: async () => ({ ...seen, state }) }),
+    );
+    try {
+      const res = await fetch(`${base}${verb}`, { method: 'POST' });
+      assert.equal(res.status, 200, `${verb} should have acted`);
+      const b = await body(res);
+      assert.equal(b.title, 'Some Show', `${verb} did not report what it observed`);
+      assert.equal(b.elapsedSeconds, 61, `${verb} omitted the position`);
+      assert.equal(b.totalSeconds, 125, `${verb} omitted the duration`);
+    } finally {
+      await close();
+    }
+  }
+
+  // And a target that reports nothing still answers cleanly — absent stays absent (FR-009).
+  const bare = await startServer(mediaStub('playing'));
+  try {
+    const b = await body(await fetch(`${bare.base}/pause`, { method: 'POST' }));
+    assert.equal('title' in b, false, 'a missing reading must not become a present field');
+    assert.equal(b.state, 'paused');
+  } finally {
+    await bare.close();
+  }
+});
