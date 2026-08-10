@@ -393,6 +393,26 @@ export function describeStart(result: AgentResult): Reply {
   };
 }
 
+/**
+ * The FIRST of `/stop`'s two messages — what is being attempted, posted before the agent
+ * is asked.
+ *
+ * `/stop` now waits for the server to actually exit, so it has the same shape `/start`
+ * has had since US3: say what is happening, then post again with the outcome. Without
+ * this the member would watch a spinner for ten seconds with no idea whether the command
+ * even landed (SC-004).
+ *
+ * It states an INTENT and never an outcome. The save has not happened when this is
+ * posted, so nothing here may read as though it had — that is the second message's job,
+ * including when it has to say the save failed and the server is still up.
+ */
+export function describeStopping(): Reply {
+  return {
+    tone: 'progress',
+    text: 'Saving the world and shutting it down. I’ll post again when it’s all the way down.',
+  };
+}
+
 /** Turn an agent result for `/stop` into what the channel sees. */
 export function describeStop(result: AgentResult): Reply {
   if (!result.reached) return unreachable(result.reason);
@@ -400,7 +420,20 @@ export function describeStop(result: AgentResult): Reply {
   const { status, body } = result;
 
   if (status === 200) {
+    // Now genuinely verified rather than asserted: the agent watched the process leave
+    // before answering, so "exited" is something it observed.
     return { tone: 'ok', text: 'Stopped. The world was saved before the server exited.' };
+  }
+  if (status === 202) {
+    // Saved, shutdown accepted, still winding down. NOT a failure and it must not read as
+    // one — FR-007's rule for start, applied to stop: the world is safe and the server is
+    // on its way down, which is a different thing from the 500 below where it is still up
+    // with progress at risk. Amber, like the start it mirrors.
+    return {
+      tone: 'progress',
+      text: 'The world is saved and it’s shutting down — it just hadn’t finished going down yet. Give it a moment; `/status` will show when it’s clear.',
+      diagnostic: agentDiagnostic(status, body),
+    };
   }
   if (status === 409 && body.state === 'stopped') {
     return { tone: 'refused', text: 'Already stopped — nothing was done.' };
@@ -906,13 +939,38 @@ export async function handleStart(
   return outcome.result;
 }
 
+/**
+ * `/stop <server>` — TWO messages, the shape `/start` already had.
+ *
+ * The agent now waits for the process to actually exit before answering, so this call can
+ * take a handful of seconds. Saying what is happening first, then posting the outcome,
+ * keeps the member from watching a bare spinner wondering whether the command landed.
+ *
+ * **The routing check comes first, deliberately.** An unknown server name contacts no
+ * agent, so announcing a shutdown before resolving it would narrate an action that never
+ * happens. Only a command that really is about to stop something gets the first message.
+ *
+ * `runStop` is left alone — the console (008) shares it and wants the single final
+ * outcome, not a Discord conversation.
+ */
 export async function handleStop(
   interaction: ChatInputCommandInteraction,
   agents: ReadonlyMap<string, AgentClient>,
   serverName: string,
 ): Promise<void> {
-  const outcome = await runStop(agents, serverName);
-  await sendReply(interaction, outcome.reply, outcome.serverName);
+  const routed = routeToAgent(serverName, agents);
+  if ('reply' in routed) {
+    await sendReply(interaction, routed.reply, serverName);
+    return;
+  }
+
+  await sendReply(interaction, describeStopping(), serverName);
+
+  const reply = describeStop(await routed.agent.stop());
+  // Posts with `followUp`, not `editReply`, so it cannot go through `sendReply` — but it
+  // MUST still record its operator half, exactly as the start follow-up does (007 T041).
+  logDiagnostic(interaction.commandName, reply);
+  await interaction.followUp({ embeds: [toEmbed(reply, serverName)] });
 }
 
 /** `/address <server>` — where players connect for that one server. */

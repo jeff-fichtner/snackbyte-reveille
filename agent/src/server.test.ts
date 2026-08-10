@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { AddressInfo } from 'node:net';
-import { createAgentServer } from './server.ts';
+import { createAgentServer, waitUntilStopped } from './server.ts';
 import type { Adapter, GameAdapter, MediaAdapter } from './adapter.ts';
 import type { MediaState, AgentResponse } from '@reveille/contract';
 
@@ -40,8 +40,12 @@ function mediaStub(state: MediaState, over: Partial<MediaAdapter> = {}): MediaAd
 }
 
 /** Start the real server on an ephemeral loopback port; returns its base URL. */
-async function startServer(adapter: Adapter): Promise<{ base: string; close: () => Promise<void> }> {
-  const server = createAgentServer(adapter);
+async function startServer(
+  adapter: Adapter,
+  exitTimeoutMs?: number,
+  exitPollMs?: number,
+): Promise<{ base: string; close: () => Promise<void> }> {
+  const server = createAgentServer(adapter, exitTimeoutMs, exitPollMs);
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const port = (server.address() as AddressInfo).port;
   return {
@@ -378,9 +382,18 @@ test('/status runs OFF the command mutex — it answers while a /stop is mid-fli
   const stopEntered = new Promise<void>((resolve) => { enteredStop = resolve; });
   const stopGate = new Promise<void>((resolve) => { releaseStop = resolve; });
 
-  // stop() blocks inside the mutex until we release it.
+  // stop() blocks inside the mutex until we release it, then the process "exits" — which
+  // `/stop` now waits to observe before it answers, so the stub has to actually go down.
+  let state: DerivedState = 'running';
   const { base, close } = await startServer(
-    stub('running', { stop: async () => { enteredStop(); await stopGate; } }),
+    stub('running', {
+      getState: async () => state,
+      stop: async () => {
+        enteredStop();
+        await stopGate;
+        state = 'stopped';
+      },
+    }),
   );
   try {
     // Fire a /stop; it acquires the command mutex and blocks inside stop().
@@ -399,6 +412,101 @@ test('/status runs OFF the command mutex — it answers while a /stop is mid-fli
     releaseStop(); // ensure the server can close even if an assertion threw
     await close();
   }
+});
+
+test('POST /stop answers 200 only once the process is actually GONE, never on acceptance alone', async () => {
+  // The reported bug: the shutdown API returns immediately, the process lingers for
+  // seconds, and the old handler answered `stopped` without looking. Here the stub stays
+  // up for two polls after stop() resolves — a 200 that arrives before it goes down would
+  // be the same false claim.
+  let state: DerivedState = 'running';
+  let readsAfterStop = 0;
+  let stopReturned = false;
+  const { base, close } = await startServer(
+    stub('running', {
+      getState: async () => {
+        if (stopReturned && ++readsAfterStop >= 3) state = 'stopped';
+        return state;
+      },
+      stop: async () => { stopReturned = true; },
+    }),
+    5_000,
+    20,
+  );
+  try {
+    const res = await fetch(`${base}/stop`, { method: 'POST' });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await body(res), { state: 'stopped' });
+    assert.ok(readsAfterStop >= 3, 'it answered without waiting for the process to leave');
+    assert.equal(state, 'stopped');
+  } finally {
+    await close();
+  }
+});
+
+test('POST /stop that cannot confirm the exit answers 202 — saved and shutting down, not failed', async () => {
+  // A process that never leaves: `running` for the pre-stop check, then `starting` for
+  // ever after — a live process whose API has gone, which is exactly what a real server
+  // looks like while it winds down. This must NOT read as the 500 (which means the world
+  // may be at risk and the server is still up) and must NOT read as the 200 (which claims
+  // it is down). The state reported is the one actually observed, never a stand-in.
+  let stopReturned = false;
+  const { base, close } = await startServer(
+    stub('running', {
+      getState: async () => (stopReturned ? 'starting' : 'running'),
+      stop: async () => { stopReturned = true; },
+    }),
+    // A short bound, so the test exercises the real HTTP path without waiting 15s.
+    150,
+    50,
+  );
+  try {
+    const res = await fetch(`${base}/stop`, { method: 'POST' });
+    assert.equal(res.status, 202, 'accepted-but-unconfirmed is neither 200 nor 500');
+    const b = await body(res);
+    assert.equal(b.state, 'starting', 'reports what it observed — a process still exists');
+    assert.match(b.message ?? '', /saved/i, 'the operator detail must say the world is safe');
+  } finally {
+    await close();
+  }
+});
+
+test('waitUntilStopped returns the last state it OBSERVED, and gives up at the bound', async () => {
+  // Driven by a fake clock, so the real 15s bound costs nothing here (mirrors watchUntilUp).
+  const clock = { t: 0, now(): number { return this.t; }, async sleep(ms: number) { this.t += ms; } };
+
+  let reads = 0;
+  assert.equal(
+    await waitUntilStopped(async () => (++reads >= 4 ? 'stopped' : 'starting'), 10_000, clock, 500),
+    'stopped',
+    'it should keep looking until the process leaves',
+  );
+  assert.equal(reads, 4);
+
+  clock.t = 0;
+  assert.equal(
+    await waitUntilStopped(async () => 'starting', 1_000, clock, 500),
+    'starting',
+    'at the bound it reports the last observation, not a verdict and not a guess',
+  );
+
+  clock.t = 0;
+  assert.equal(
+    await waitUntilStopped(async () => { throw new Error('unreachable'); }, 1_000, clock, 500),
+    undefined,
+    'a read that never succeeds observed nothing, and must not invent a state',
+  );
+});
+
+test('a read that fails mid-wait must not turn a completed shutdown into a failure', async () => {
+  const clock = { t: 0, now(): number { return this.t; }, async sleep(ms: number) { this.t += ms; } };
+  let reads = 0;
+  const flaky = async (): Promise<'stopped' | 'starting'> => {
+    reads += 1;
+    if (reads === 2) throw new Error('probe blipped');
+    return reads >= 4 ? 'stopped' : 'starting';
+  };
+  assert.equal(await waitUntilStopped(flaky, 10_000, clock, 500), 'stopped');
 });
 
 test('007 T031 — a MULTI-item step is indivisible, and /status still answers (FR-019)', async () => {

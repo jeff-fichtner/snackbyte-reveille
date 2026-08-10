@@ -29,6 +29,8 @@ import {
   runSeek,
   runStep,
   runAddress,
+  describeStopping,
+  handleStop,
 } from './commands.ts';
 import { describeFollowup } from './followup.ts';
 import type { ControlledServer } from './config.ts';
@@ -1350,6 +1352,80 @@ function stubAgent(result: AgentResult): { agent: AgentClient; calls: string[] }
   } as unknown as AgentClient;
   return { agent, calls };
 }
+
+// ── `/stop` speaks twice, like `/start` ───────────────────────────────────────
+// The agent now waits for the process to actually exit, so a stop takes seconds. The
+// member is told what is happening, then told how it went.
+
+/** Records what a command posted, in order: `editReply` first, then any `followUp`. */
+function recordingInteraction(commandName: string): {
+  interaction: never;
+  posts: { via: 'editReply' | 'followUp'; text: string }[];
+} {
+  const posts: { via: 'editReply' | 'followUp'; text: string }[] = [];
+  const grab = (via: 'editReply' | 'followUp') => async (payload: { embeds: { data: { description?: string } }[] }) => {
+    posts.push({ via, text: payload.embeds[0]?.data.description ?? '' });
+  };
+  const interaction = {
+    commandName,
+    editReply: grab('editReply'),
+    followUp: grab('followUp'),
+  } as unknown as never;
+  return { interaction, posts };
+}
+
+test('the first message states an INTENT and promises a second — it claims no outcome', () => {
+  const first = describeStopping();
+  assert.equal(first.tone, 'progress', 'amber like the start it mirrors, not a green result');
+  assert.match(said(first), /sav(e|ing)/i, 'it should say what is being attempted');
+  assert.match(said(first), /post again|confirm/i, 'it must promise the second message');
+  // The save has NOT happened when this is posted. If it reads as a completed stop, the
+  // failure branch that follows would contradict a claim already made.
+  assert.doesNotMatch(first.text, /\bstopped\b|\bis down\b|\bexited\b/i);
+});
+
+test('/stop posts twice: what it is doing, then how it went', async () => {
+  const { interaction, posts } = recordingInteraction('stop');
+  const { agent } = stubAgent(reached(200, { state: 'stopped' }));
+
+  await handleStop(interaction, new Map([['satisfactory', agent]]), 'satisfactory');
+
+  assert.equal(posts.length, 2, 'a stop that reaches an agent must speak twice');
+  assert.deepEqual(posts.map((p) => p.via), ['editReply', 'followUp'], 'first the ack, then a NEW message');
+  assert.equal(posts[0]!.text, describeStopping().text);
+  assert.equal(posts[1]!.text, describeStop(reached(200, { state: 'stopped' })).text);
+});
+
+test('an unknown server contacts nothing, so it must NOT announce a shutdown', async () => {
+  const { interaction, posts } = recordingInteraction('stop');
+  const { agent, calls } = stubAgent(reached(200, { state: 'stopped' }));
+
+  await handleStop(interaction, new Map([['satisfactory', agent]]), 'nosuchgame');
+
+  assert.equal(calls.length, 0, 'no agent may be contacted for a name that routes nowhere');
+  assert.equal(posts.length, 1, 'narrating a shutdown that never starts would be a lie');
+  assert.match(posts[0]!.text, /unknown server/i);
+});
+
+test('a stop that could not be confirmed down reads as progress, never as a failure', () => {
+  const pending = describeStop(reached(202, { state: 'starting', message: 'World saved …' }));
+  const failed = describeStop(reached(500, { state: 'error', message: 'save failed' }));
+  const done = describeStop(reached(200, { state: 'stopped' }));
+
+  assert.equal(pending.tone, 'progress', 'saved-and-shutting-down is not a failure');
+  assert.notEqual(pending.tone, failed.tone, 'it must not look like the world may be at risk');
+  assert.notEqual(said(pending), said(done), 'and it must not claim the server is down');
+
+  // The distinction that matters: the 500 means STILL RUNNING with progress unsaved; the
+  // 202 means saved and on its way down. Conflating them is the whole bug in reverse.
+  assert.match(said(pending), /saved/i, 'it must say the world is safe');
+  assert.match(said(failed), /still running/i, 'the failure must still say the server is up');
+  assert.match(said(pending), /\/status/, 'it should leave the reader something to do (SC-002)');
+
+  // The agent's own words are the OPERATOR's, never the member's (007 FR-005/FR-006).
+  assert.doesNotMatch(said(pending), /202|World saved …/);
+  assert.match(logged(pending), /202/);
+});
 
 test('a core returns EXACTLY what its describe function produces (FR-023 is inherited, not re-decided)', async () => {
   // The console shows `reply.text`; if a core reworded anything, the console could claim an

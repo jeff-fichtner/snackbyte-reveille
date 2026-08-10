@@ -10,7 +10,7 @@
  * path is byte-for-byte what it was in 002 (FR-013).
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import type { AgentResponse } from '@reveille/contract';
+import type { AgentResponse, ServerState } from '@reveille/contract';
 import { serialize } from './serialize.ts';
 import type { Adapter, GameAdapter, MediaAdapter, MediaObservation } from './adapter.ts';
 
@@ -61,13 +61,75 @@ async function handleStart(adapter: GameAdapter): Promise<Outcome> {
 }
 
 /**
- * POST /stop — save the world, then shut the server down.
+ * How long `/stop` waits for the process to actually be gone, and how often it looks.
+ *
+ * **Internal cadence, not configuration** — the same category as the orchestrator's
+ * `POLL_INTERVAL_MS`, and injectable for the same reason: so the loop is testable without
+ * real time. Neither value differs between dev and prod, and neither can make the agent
+ * control the wrong thing if it is off; the worst a wrong one does is make a confirmation
+ * arrive sooner or later. That is why they are constants rather than required env vars.
+ *
+ * Sized against the orchestrator's 45s client budget. The wait is only ever reached when
+ * `adapter.stop()` already SUCCEEDED — which means it returned inside its own
+ * `STOP_TIMEOUT_MS`, in practice a second or three, since a save that actually burned the
+ * full bound throws rather than arriving here.
+ */
+const EXIT_CONFIRM_TIMEOUT_MS = 15_000;
+const EXIT_POLL_INTERVAL_MS = 500;
+
+/** Injected so the wait is testable without real time — mirrors `followup.ts`'s `Clock`. */
+export interface Clock {
+  now(): number;
+  sleep(ms: number): Promise<void>;
+}
+
+const REAL_CLOCK: Clock = {
+  now: () => Date.now(),
+  sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+};
+
+/**
+ * Watch until the target reports `stopped`, or the bound elapses. Returns the LAST state
+ * actually observed — not a verdict — so the caller reports what was seen rather than what
+ * it hoped for.
+ *
+ * Pure given its dependencies (state source, clock, cadence all injected), so the whole
+ * loop is testable without a real server or real time.
+ *
+ * A read that fails must not turn a completed shutdown into a failure, so a throw is
+ * treated as "nothing observed this time" and the watch continues to the bound. `undefined`
+ * therefore means every read failed, which a game adapter's `getState` never does — it
+ * derives a state and never throws.
+ */
+export async function waitUntilStopped(
+  getState: () => Promise<Exclude<ServerState, 'error'>>,
+  timeoutMs: number = EXIT_CONFIRM_TIMEOUT_MS,
+  clock: Clock = REAL_CLOCK,
+  pollMs: number = EXIT_POLL_INTERVAL_MS,
+): Promise<Exclude<ServerState, 'error'> | undefined> {
+  const deadline = clock.now() + timeoutMs;
+  let last: Exclude<ServerState, 'error'> | undefined;
+  for (;;) {
+    const seen = await getState().catch(() => undefined);
+    if (seen !== undefined) last = seen;
+    if (seen === 'stopped') return seen;
+    if (clock.now() >= deadline) return last;
+    await clock.sleep(pollMs);
+  }
+}
+
+/**
+ * POST /stop — save the world, shut the server down, and wait until it is actually gone.
  *
  * Refuses rather than forces in every ambiguous case. Nothing here may terminate a
  * process, and a stop is never queued for later: an unattended shutdown no player
  * directly commanded is forbidden outright (FR-010, FR-017).
  */
-async function handleStop(adapter: GameAdapter): Promise<Outcome> {
+async function handleStop(
+  adapter: GameAdapter,
+  exitTimeoutMs: number,
+  exitPollMs: number,
+): Promise<Outcome> {
   const state = await adapter.getState();
 
   if (state === 'stopped') {
@@ -89,7 +151,39 @@ async function handleStop(adapter: GameAdapter): Promise<Outcome> {
     return { status: 500, body: { state: 'error', message } };
   }
 
-  return { status: 200, body: { state: 'stopped' } };
+  // The shutdown was ACCEPTED — which is not the same as the process being gone. Answering
+  // `stopped` here without looking was the last place this system claimed a state it never
+  // observed; DECISIONS 024 settled that observing and reporting is the honest form, and
+  // this applies it to games. Satisfactory takes seconds to unload the world and exit, and
+  // during that window `getState()` still finds a process.
+  //
+  // Waiting HOLDS THE COMMAND MUTEX, which is the other half of the fix and not a side
+  // effect: a `/start` issued moments later now queues behind this stop and then succeeds,
+  // instead of reading the dying process and being refused. The mutex is already the
+  // system's record of an operation in flight, so nothing new has to remember anything.
+  // `/status` is unaffected — it runs off the mutex by design (DECISIONS 014).
+  const last = await waitUntilStopped(() => adapter.getState(), exitTimeoutMs, REAL_CLOCK, exitPollMs);
+  if (last === 'stopped') {
+    return { status: 200, body: { state: 'stopped' } };
+  }
+
+  // 202: neither done nor failed. The world IS saved and the shutdown WAS accepted, so
+  // this must not read as the 500 above — that one means progress is at risk, this one
+  // means the server is on its way down and simply took longer than the bound.
+  //
+  // `state` is the last thing actually OBSERVED, never a stand-in: a process that still
+  // exists reads `starting`, because the state model has no `stopping` and cannot derive
+  // one (see `initial-architecture/03-deferred.md`). Falling back to the pre-stop reading
+  // keeps that true even in the unreachable case where every read failed.
+  return {
+    status: 202,
+    body: {
+      state: last ?? state,
+      message:
+        `World saved and shutdown accepted, but the process had not exited after ` +
+        `${exitTimeoutMs}ms.`,
+    },
+  };
 }
 
 /**
@@ -341,7 +435,12 @@ async function handleStatus(adapter: Adapter): Promise<Outcome> {
 }
 
 /** The mutating verbs, dispatched by adapter kind. POST-only; `/status` is off the mutex. */
-async function route(req: IncomingMessage, adapter: Adapter): Promise<Outcome> {
+async function route(
+  req: IncomingMessage,
+  adapter: Adapter,
+  exitTimeoutMs: number,
+  exitPollMs: number,
+): Promise<Outcome> {
   const path = (req.url ?? '').split('?')[0];
 
   if (req.method !== 'POST') {
@@ -353,7 +452,7 @@ async function route(req: IncomingMessage, adapter: Adapter): Promise<Outcome> {
       case '/start':
         return await handleStart(adapter);
       case '/stop':
-        return await handleStop(adapter);
+        return await handleStop(adapter, exitTimeoutMs, exitPollMs);
       default:
         return { status: 404, body: { state: 'error', message: `No such endpoint: ${path}` } };
     }
@@ -375,7 +474,19 @@ async function route(req: IncomingMessage, adapter: Adapter): Promise<Outcome> {
   }
 }
 
-export function createAgentServer(adapter: Adapter): ReturnType<typeof createServer> {
+/**
+ * Build the agent's server.
+ *
+ * The two exit-confirmation values are parameters with real defaults for the same reason
+ * `watchUntilUp` takes a clock: so `/stop`'s wait can be exercised end-to-end through real
+ * HTTP without the test sitting through a 15-second bound. Production calls this with one
+ * argument; nothing configures them.
+ */
+export function createAgentServer(
+  adapter: Adapter,
+  exitTimeoutMs: number = EXIT_CONFIRM_TIMEOUT_MS,
+  exitPollMs: number = EXIT_POLL_INTERVAL_MS,
+): ReturnType<typeof createServer> {
   return createServer((req, res) => {
     const path = (req.url ?? '').split('?')[0];
 
@@ -396,7 +507,7 @@ export function createAgentServer(adapter: Adapter): ReturnType<typeof createSer
     }
 
     // Every mutating command runs to completion before the next begins (T013a).
-    void serialize(() => route(req, adapter))
+    void serialize(() => route(req, adapter, exitTimeoutMs, exitPollMs))
       .then(settle)
       .catch(fail);
   });

@@ -71,6 +71,42 @@ process), because whoever supervises is implicitly deciding restart policy.
 Related and unanswered: what happens to the world if the agent dies while the game
 server is still running.
 
+### A `stopping` state — the seam change `/stop` stopped just short of
+
+**This one is written down because a fix landed next to it and deliberately did not
+make it.** `/stop` now waits for the process to actually leave before answering, and
+says so in two messages. That closed the false *"Stopped"*. It did **not** close the
+thing underneath.
+
+`getState()` derives everything by asking right now, and never remembers (FR-012).
+A process that exists while its control API is silent is therefore reported
+`starting` — and that reading is **identical whether the world is loading or
+unloading**. There is no observation that separates them. Which means:
+
+- The 202 branch of `/stop` reports `starting` on a server that is shutting down.
+  Honest, since that is genuinely what was observed, and never shown to a member —
+  but it is the wrong word for what is happening.
+- A `/start` during that window would be refused with *"A start is already in
+  progress"*, naming the opposite operation. **Holding the command mutex through
+  the wait is what keeps that from being reachable in practice** — the `/start`
+  queues behind the stop and then succeeds — but it is a *cover*, not a *fix*. Any
+  path that leaves the mutex early re-exposes it: the confirmation bound elapsing,
+  the agent restarting mid-shutdown, or an operator stopping the server outside
+  Reveille.
+
+**Closing it properly means the agent remembering that it issued a shutdown**, which
+is a real departure from deriving state per request, and adding `stopping` to
+`ServerState` — a seam change (v6) touching every consumer of the contract. Memory
+also brings its own question: an agent restarted mid-shutdown forgets, and is then
+back to the ambiguous reading anyway, so the remembered flag needs a lifetime.
+
+That is a spec, not a fix, and the payoff is a nicer word in a window a member is
+unlikely to hit. **Trigger: when the covering behaviour stops covering** — the
+first time someone is told a start is in progress while a stop is what is
+happening, or the first consumer that needs to distinguish the two directions
+(a dashboard, an auto-stop state machine, or the presence work above, all of which
+would).
+
 ### "Unreachable" is ambiguous
 Nothing distinguishes *the agent isn't answering because the machine is off*
 (normal) from *because something broke* (not). Harmless while the PC is always on.

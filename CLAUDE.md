@@ -162,6 +162,19 @@ server running (Constitution IV). Each adapter's source is tested for this and f
 save-before-shutdown: `palworld.test.ts` **and** `satisfactory.test.ts`. Media has
 no `/stop`; `vlc.test.ts` bans OS kill **and** every content command.
 
+**`/stop` waits for the process to actually be gone, and speaks twice.** A shutdown
+being *accepted* is not the process having *exited* — Satisfactory takes seconds to
+unload the world, and answering `stopped` on acceptance alone was the last place this
+system claimed a state it never observed. `handleStop` now polls `adapter.getState()`
+until `stopped` (`200`), or answers `202` — saved, accepted, not yet confirmed down,
+which is **not** the `500` that means still-running-with-progress-at-risk. Discord posts
+the intent first and the outcome second, the shape `/start` has had since US3.
+**Do not "optimise" the wait away**: holding the command mutex through it is what makes
+a `/start` moments later queue and succeed instead of reading the dying process and
+being refused *"a start is already in progress"* — the state model cannot tell
+winding-down from coming-up, and that gap is deferred deliberately, with a trigger, in
+[`03-deferred.md`](initial-architecture/03-deferred.md).
+
 **The media ban is about *persistence and opinions*, not *observation* (007, DECISIONS
 024).** The rule has moved twice: 005 went from "no movement through content" to "no
 knowledge of content" (DECISIONS 022); 007 corrects that phrasing, because only *store*
