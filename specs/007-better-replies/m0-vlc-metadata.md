@@ -115,10 +115,39 @@ Three consecutive calls over loopback:
 | 2 | 21.9 ms |
 | 3 | 21.5 ms |
 
-**~22 ms per step**, tight variance. `research.md` §3 estimated ~10 ms, so the real exposure is
-**twice** what was recorded: a count of 1,000,000 holds the agent's command mutex for roughly
-**6.1 hours**, not ~3. The trade-off is unchanged in kind — bounded, self-inflicted, visible, ended
-by restarting the agent — but the number in `research.md` has been corrected to the measured one.
+**~22 ms per step**, tight variance.
+
+> **§5 measured the wrong thing, and §5a corrects it (2026-08-10).** 22 ms is how long VLC
+> takes to *answer* `pl_next`, not how long it takes to *switch items*. The `count` design
+> was priced on the request latency and needed the switch latency. See below.
+
+### 5a. Switch latency — and why three rapid steps advance ONE item
+
+Measured by issuing `pl_next` and polling `currentplid` until it changed:
+
+| Trial | Switch |
+|---|---|
+| 1 | 275 ms |
+| 2 | 182 ms |
+| 3 | 189 ms |
+
+**~180–275 ms — roughly 10× the request latency.**
+
+**The consequence is a real defect, observed live.** A step issued while the previous one is
+still loading is **silently dropped**. Three `pl_next` calls fired ~22 ms apart advanced the
+playlist by **one item**, and *every one of them returned `200`*. This is the same trap 005
+recorded from the other direction — VLC answers `200` for commands it does not act on — so a
+loop that trusts the status code both **under-steps** and then **reports the item it just
+left**, because the post-step read also wins the race.
+
+**Therefore a multi-item step must confirm each switch landed before issuing the next.** That
+is not retrying toward a desired state (DECISIONS 024 forbids that): the command is issued
+exactly once per step, and the wait only declines to charge ahead of the player. Where a step
+cannot land, the wait bounds out and the loop moves on without concluding why.
+
+**Re-price the mutex exposure with this number, not §5's.** At ~200 ms per confirmed step, a
+count of 1,000,000 holds the agent's command mutex for roughly **55 hours**, not the ~6
+`research.md` §3 originally derived from 22 ms.
 
 ---
 

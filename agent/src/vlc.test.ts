@@ -104,10 +104,18 @@ test('uses the FORCE pause/resume commands, not the toggle (M0 §4)', () => {
  */
 async function captureRequests(drive: (a: ReturnType<typeof createVlcAdapter>) => Promise<void>) {
   const seen: string[] = [];
+  // The stub ADVANCES on a step, like a real player, because the adapter now waits for the
+  // switch to land before issuing the next one. A stub whose item never changes would make
+  // every step wait out its full bound — and, worse, would let a loop that under-steps pass
+  // (the real VLC bug: three rapid `pl_next` calls advanced the playlist by ONE, every
+  // request answering 200).
+  let plid = 1;
   const server = createServer((req, res) => {
-    seen.push(req.url ?? '');
+    const url = req.url ?? '';
+    seen.push(url);
+    if (url.includes('command=pl_next') || url.includes('command=pl_previous')) plid++;
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ state: 'playing' }));
+    res.end(JSON.stringify({ state: 'playing', currentplid: plid }));
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address() as AddressInfo;
@@ -151,8 +159,10 @@ test('next/previous send the bare step commands and NOTHING else (M0 §7)', asyn
   // no "next times N", so a count of N is N identical bare requests (007 T025). What is
   // banned is knowledge of *which* item (FR-002); how many blind steps to take is a
   // parameter of the operation, which DECISIONS 023 admits and 024 confirms.
-  assert.equal(seen[0], '/requests/status.json?command=pl_next');
-  assert.equal(seen[1], '/requests/status.json?command=pl_previous');
+  const steps = seen.filter((u) => u.includes('command='));
+  assert.equal(steps[0], '/requests/status.json?command=pl_next');
+  assert.equal(steps[1], '/requests/status.json?command=pl_previous');
+  assert.equal(steps.length, 2, 'one step each, and no extra commands');
 });
 
 test('the request target is composed only from the configured (loopback) base URL', () => {
@@ -173,8 +183,11 @@ test('007 T030 — a count of N issues EXACTLY N steps, unclamped (SC-008, FR-01
     const seen = await captureRequests(async (adapter) => {
       await adapter.next(n);
     });
-    assert.equal(seen.length, n, `count ${n} must issue exactly ${n} requests`);
-    for (const url of seen) {
+    // Count the STEPS, not every request: the loop also reads to confirm each switch
+    // landed. Those reads are the fix for the under-stepping bug, not noise.
+    const steps = seen.filter((u) => u.includes('command=pl_next'));
+    assert.equal(steps.length, n, `count ${n} must issue exactly ${n} steps`);
+    for (const url of steps) {
       assert.equal(url, '/requests/status.json?command=pl_next');
     }
   }
@@ -185,9 +198,9 @@ test('007 T030 — a count of N issues EXACTLY N steps, unclamped (SC-008, FR-01
   const many = await captureRequests(async (adapter) => {
     await adapter.previous(250);
   });
-  assert.equal(many.length, 250, 'the count was clamped — FR-016 forbids any bound');
-  assert.equal(new Set(many).size, 1, 'every step must be the same bare command');
-  assert.equal(many[0], '/requests/status.json?command=pl_previous');
+  const manySteps = many.filter((u) => u.includes('command=pl_previous'));
+  assert.equal(manySteps.length, 250, 'the count was clamped — FR-016 forbids any bound');
+  assert.equal(new Set(manySteps).size, 1, 'every step must be the same bare command');
 });
 
 test('007 T030 — a count of zero steps zero times, with no special case (SC-008)', async () => {
@@ -196,7 +209,7 @@ test('007 T030 — a count of zero steps zero times, with no special case (SC-00
   const seen = await captureRequests(async (adapter) => {
     await adapter.next(0);
   });
-  assert.deepEqual(seen, [], 'a count of zero must reach the player zero times');
+  assert.deepEqual(seen.filter((u) => u.includes('command=')), [], 'a count of zero must step zero times');
 });
 
 test('007 T030 — the count never reaches the wire, and no step names an item (FR-002)', async () => {
@@ -204,7 +217,7 @@ test('007 T030 — the count never reaches the wire, and no step names an item (
     await adapter.next(5);
     await adapter.previous(5);
   });
-  for (const url of seen) {
+  for (const url of seen.filter((u) => u.includes('command='))) {
     // VLC has no "next times N": N is N identical bare requests. Anything else in the
     // query would be knowledge of WHICH item, which stays forbidden (DECISIONS 024).
     assert.doesNotMatch(url, /count=|val=|id=|plid=|index=/, `a step carried a parameter: ${url}`);

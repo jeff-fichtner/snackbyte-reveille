@@ -86,11 +86,17 @@ recorded here and in `DECISIONS.md` rather than silently fixed.
 
 **Rationale, and the conflict**: FR-016 forbids clamping. FR-019 requires the multi-step to be
 indivisible, which means the agent's command mutex is held for the whole loop. Those two are fine
-at `/next 5` and pathological at `/next 1000000`: at the **22 ms per command measured** in
-`m0-vlc-metadata.md` §5, a million steps holds the mutex for roughly **6.1 hours**, during which
+at `/next 5` and pathological at `/next 1000000`: at the **~200 ms per confirmed step measured** in
+`m0-vlc-metadata.md` §5a, a million steps holds the mutex for roughly **55 hours**, during which
 every `/pause`, `/play` and `/next` on that player blocks. `/status` is unaffected — it deliberately
-does not sit on the mutex. (This paragraph originally estimated ~10 ms; the measurement doubled it,
-which changes the size of the exposure but not its shape.)
+does not sit on the mutex. (This paragraph has been wrong twice, and the second time matters. It first estimated
+~10 ms; M0 §5 measured 22 ms and it was corrected. But 22 ms is the *request* latency —
+what §5 actually measured — and the design needed the *switch* latency, which §5a later
+measured at ~200 ms. **The exposure is roughly 9× what this section claimed when the
+unbounded-count trade-off was accepted**, and a step that cannot land costs its full 2 s
+bound. The trade-off's shape is unchanged, but its price was misquoted at the moment it was
+agreed, which makes the recorded **time-bound fallback** the stronger option rather than a
+contingency.)
 
 The spec's "very large count" edge case anticipated the *player's* behaviour ("not clamped, the
 player does what it does") but not **mutex starvation**, which is a property of our own agent.

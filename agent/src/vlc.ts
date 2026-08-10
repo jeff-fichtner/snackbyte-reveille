@@ -72,6 +72,17 @@ const SEEK_COMMAND = 'seek';
 const NEXT_COMMAND = 'pl_next';
 const PREVIOUS_COMMAND = 'pl_previous';
 
+/**
+ * How long to wait for one playlist step to actually land (007).
+ *
+ * Measured switch latency is ~180–275 ms, so this is ~7x the observed worst case. It bounds
+ * a step that cannot complete; it is NOT a bound on how far a member may step (FR-016).
+ */
+const SETTLE_TIMEOUT_MS = 2_000;
+
+/** How often to re-read while waiting for a step to land. */
+const SETTLE_POLL_MS = 25;
+
 /** How long to wait on the loopback web interface before treating it as unreachable. */
 const PROBE_TIMEOUT_MS = 2_000;
 
@@ -240,7 +251,51 @@ export async function previous(config: VlcConfig, count: number): Promise<void> 
  */
 async function step(config: VlcConfig, command: string, count: number): Promise<void> {
   for (let i = 0; i < count; i++) {
+    const before = await currentItemId(config);
     await vlcFetch(config, command);
+    await settled(config, before);
+  }
+}
+
+/**
+ * Which playlist entry is loaded right now, as an opaque marker.
+ *
+ * **This is not knowledge of content and must not become it.** The value is compared for
+ * *inequality* and nothing else — it is never parsed, never mapped to a position in the
+ * playlist, never stored, and never shown to anyone. It answers exactly one question:
+ * "is this still the same item as a moment ago?" Reading the playlist to find out *which*
+ * item, or where in the list it sits, stays forbidden (DECISIONS 022/024).
+ */
+async function currentItemId(config: VlcConfig): Promise<unknown> {
+  const res = await vlcFetch(config);
+  const body = (await res.json()) as { currentplid?: unknown };
+  return body.currentplid;
+}
+
+/**
+ * Wait until the loaded item differs from `before`, or the bound elapses.
+ *
+ * **Why this exists.** `pl_next` returns `200` the instant it is accepted, not when the
+ * switch completes — and a step issued while the previous one is still loading is silently
+ * DROPPED. Measured: three steps fired back to back advanced the playlist by **one**, with
+ * every request answering 200. A loop that trusts the status code therefore under-steps and
+ * reports the item it just left, which is the plausible-looking-wrong-answer failure this
+ * codebase keeps meeting (005's absolute seek, M0's 200-for-unrecognised-commands).
+ *
+ * Measured switch latency is ~180–275 ms (`m0-vlc-metadata.md` §5a), so the bound is
+ * generous by an order of magnitude.
+ *
+ * **This is not retrying toward a desired state** (DECISIONS 024). The command is issued
+ * exactly once; this only declines to charge ahead before the player has caught up. If the
+ * bound elapses — the player cannot advance, for reasons this code is forbidden to
+ * investigate — it simply stops waiting and moves on. It never concludes *why*, never
+ * re-issues, and never reports that anything did or did not happen.
+ */
+async function settled(config: VlcConfig, before: unknown): Promise<void> {
+  const deadline = Date.now() + SETTLE_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    if ((await currentItemId(config)) !== before) return;
+    await new Promise((resolve) => setTimeout(resolve, SETTLE_POLL_MS));
   }
 }
 
