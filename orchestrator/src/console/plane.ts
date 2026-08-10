@@ -223,9 +223,31 @@ export async function isAnswering(port: number): Promise<boolean> {
 /** What happened to one service during a plane operation. */
 export interface ServiceOutcome {
   readonly label: string;
-  readonly state: 'up' | 'down' | 'failed' | 'skipped' | 'stopped';
+  readonly state: 'up' | 'down' | 'failed' | 'skipped' | 'stopped' | 'foreign';
   /** Operator detail — a log to read, a pid that was stopped. */
   readonly detail: string | undefined;
+}
+
+/**
+ * Is this service's port held by something this console does not own?
+ *
+ * **Ownership is the PROCESS; liveness is the PORT — and conflating them was a real bug.**
+ * A service started by hand does not match the absolute-path signature (deliberately: a
+ * loose match would let one checkout's `plane down` kill another's). So `plane up` saw no
+ * owned process, spawned, its own child died on `EADDRINUSE` — and then the readiness probe
+ * found the *foreign* holder answering and reported `up`. Success, for a process that no
+ * longer existed and that `plane down` could not stop. That is precisely the silent wrong
+ * behaviour {@link planeUp} exists to prevent, arriving from the other direction.
+ *
+ * Asking this first keeps the two notions apart: a port answering is not evidence that
+ * *our* service is running.
+ *
+ * Agents only. The orchestrator has no port to probe, so a hand-started one stays
+ * indistinguishable from none and still reports `down` — a smaller gap, and not one a
+ * probe can close.
+ */
+async function isForeign(service: PlaneService, owned: readonly RunningProcess[]): Promise<boolean> {
+  return owned.length === 0 && service.port !== undefined && (await isAnswering(service.port));
 }
 
 /**
@@ -254,8 +276,21 @@ export async function planeUp(
     // and die on EADDRINUSE; and a service this console did not start has no log to read.
     // For the orchestrator the stake is higher than a crash — a second one is a second bot
     // answering the same guild (FR-030).
-    if ((alreadyRunning.get(service.label) ?? []).length > 0) {
+    const owned = alreadyRunning.get(service.label) ?? [];
+    if (owned.length > 0) {
       outcomes.push({ label: service.label, state: 'skipped', detail: 'already running' });
+      continue;
+    }
+
+    // Something else already holds the port. Spawning here is guaranteed to die on
+    // EADDRINUSE, and — worse — the readiness probe below would then find the FOREIGN
+    // process answering and report `up` for a service we never started and cannot stop.
+    if (await isForeign(service, owned)) {
+      outcomes.push({
+        label: service.label,
+        state: 'foreign',
+        detail: `something else is serving :${service.port} — not started`,
+      });
       continue;
     }
 
@@ -315,6 +350,18 @@ export async function planeDown(services: readonly PlaneService[]): Promise<Serv
   for (const service of services) {
     const procs = found.get(service.label) ?? [];
     if (procs.length === 0) {
+      // "Was not running" would be a clean bill of health for a port that is still being
+      // served. Nothing is killed — an unrecognised process is explicitly not ours to stop
+      // (FR-033) — but the operator is told, because the plane is not in the state they asked
+      // for and a silent `down` is what let this hide.
+      if (await isForeign(service, procs)) {
+        outcomes.push({
+          label: service.label,
+          state: 'foreign',
+          detail: `something else is serving :${service.port} — left alone`,
+        });
+        continue;
+      }
       outcomes.push({ label: service.label, state: 'down', detail: 'was not running' });
       continue;
     }
@@ -350,6 +397,15 @@ export async function planeStatus(services: readonly PlaneService[]): Promise<Se
     services.map(async (service): Promise<ServiceOutcome> => {
       const procs = found.get(service.label) ?? [];
       if (procs.length === 0) {
+        // A port that answers with no process of ours behind it is a real, reportable
+        // situation — not "no process". Same distinction `plane up`/`down` now draw.
+        if (await isForeign(service, procs)) {
+          return {
+            label: service.label,
+            state: 'foreign',
+            detail: `something else is serving :${service.port}`,
+          };
+        }
         return { label: service.label, state: 'down', detail: 'no process' };
       }
       const pids = `pid ${procs.map((p) => p.pid).join(', ')}`;

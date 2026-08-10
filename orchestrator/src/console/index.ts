@@ -296,7 +296,10 @@ async function runPlane(ctx: Console, verb: PlaneVerb, name: string | undefined)
 
   process.stdout.write(`${renderPlane(verb, outcomes)}\n`);
   // The worst service decides the code, so a script cannot read "mostly up" as success.
-  return outcomes.some((o) => o.state === 'failed') ? EXIT.REFUSED : EXIT.OK;
+  // `foreign` counts: the plane is not in the state that was asked for — a port is being
+  // served by something this console neither started nor can stop — and exiting 0 on that
+  // is the same silent success the state exists to expose.
+  return outcomes.some((o) => o.state === 'failed' || o.state === 'foreign') ? EXIT.REFUSED : EXIT.OK;
 }
 
 /** Dispatch one invocation. Returns the exit code; never calls `process.exit` itself. */

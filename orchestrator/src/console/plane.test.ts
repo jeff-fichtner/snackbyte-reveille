@@ -179,9 +179,10 @@ test('discovery reads only env files — never the tenant configuration (the two
 // These spawn for real, against a throwaway repo. The failed-start path is the whole
 // reason FR-034 exists: removing the window removed the only place that failure showed.
 
-import { planeUp, planeDown } from './plane.ts';
+import { planeUp, planeDown, planeStatus, isAnswering } from './plane.ts';
 import { logPath } from './logs.ts';
 import { readFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
 
 /** A repo whose "agent" is whatever script body you give it. */
 function repoWithAgent(body: string, envs: Record<string, string>): string {
@@ -197,6 +198,7 @@ function repoWithAgent(body: string, envs: Record<string, string>): string {
 /** A port nothing is on. High and odd enough not to collide with the real plane. */
 const PROBE_PORT = 8391;
 const PROBE_PORT_2 = 8392;
+const PROBE_PORT_3 = 8393;
 
 test('a service that dies at boot is reported FAILED, never started, and names its log (FR-034, SC-010)', async () => {
   // Exactly the real failure mode: a required env var is missing, so it throws and exits.
@@ -258,6 +260,61 @@ test('plane up is idempotent — an already-running service is skipped, never la
 
 test('the exit-worthy signal is present: a failed service is distinguishable from a skipped one', async () => {
   // `plane up` reports per service and the worst one decides the code, so these must differ.
-  const states = new Set(['up', 'skipped', 'failed', 'down', 'stopped']);
-  assert.equal(states.size, 5, 'each outcome is its own word — none doubles for another');
+  const states = new Set(['up', 'skipped', 'failed', 'down', 'stopped', 'foreign']);
+  assert.equal(states.size, 6, 'each outcome is its own word — none doubles for another');
+});
+
+test('a port held by a process we do NOT own is reported foreign — never `up`, never `was not running`', async () => {
+  // A REGRESSION FENCE for a measured bug. An agent started by hand does not match the
+  // absolute-path signature, so `plane up` saw nothing of its own, spawned, and its child
+  // died on EADDRINUSE — then the readiness probe found the FOREIGN holder answering and
+  // reported `up`. Success, for a process that no longer existed. `plane down` then said
+  // "was not running" while the port kept serving. Ownership is the process; liveness is
+  // the port; this is what keeps them apart.
+  const root = repoWithAgent(
+    "throw new Error('this must never even be reached');",
+    { '.env.taken': `TARGET=taken\nAGENT_PORT=${PROBE_PORT_3}\n` },
+  );
+  // An interloper that answers /status but is NOT one of our services — spawned via `-e`, so
+  // its command line carries neither our entry script nor our env file.
+  const interloper = spawn(
+    process.execPath,
+    [
+      '-e',
+      "const {createServer}=require('node:http');createServer((_q,s)=>{s.writeHead(200,{'content-type':'application/json'});s.end('{\"state\":\"stopped\"}');})" +
+        `.listen(${PROBE_PORT_3},'127.0.0.1');`,
+    ],
+    { stdio: 'ignore', windowsHide: true },
+  );
+  try {
+    // Let it bind before asking anything.
+    for (let i = 0; i < 50 && !(await isAnswering(PROBE_PORT_3)); i += 1) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    assert.ok(await isAnswering(PROBE_PORT_3), 'the interloper never came up — test cannot conclude');
+
+    const services = discoverServices(root).filter((s) => s.label === 'taken-agent');
+
+    const up = await planeUp(services, root, 2_000);
+    assert.equal(up[0]?.state, 'foreign', 'a port we do not own must NEVER be reported as up');
+    assert.match(up[0]?.detail ?? '', new RegExp(`${PROBE_PORT_3}`), 'and it must name the port');
+
+    const status = await planeStatus(services);
+    assert.equal(status[0]?.state, 'foreign', 'status must not call a served port "no process"');
+
+    const down = await planeDown(services);
+    assert.equal(down[0]?.state, 'foreign', 'down must not report a clean stop over a live port');
+    assert.doesNotMatch(down[0]?.detail ?? '', /was not running/);
+
+    // And it was LEFT ALONE — an unrecognised process is explicitly not ours to kill (FR-033).
+    assert.ok(await isAnswering(PROBE_PORT_3), 'plane down killed a process that was not its own');
+  } finally {
+    interloper.kill();
+    await new Promise((r) => setTimeout(r, 300));
+    try {
+      rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    } catch {
+      // A leftover temp directory is the OS's business, not this test's verdict.
+    }
+  }
 });
