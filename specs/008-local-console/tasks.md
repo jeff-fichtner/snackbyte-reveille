@@ -196,3 +196,18 @@ server or a visible change to what is playing, which is why it stopped at the au
 - **T052 PASS** — the conflict guard refused naming both tenants (exit 64), a shared target unioned to one entry, and a missing `TENANTS` named the variable (exit 64). Run against the real console path via temporary env files; `orchestrator/.env` was never modified, and no credential was involved because the console reads `parseTenants` + `FOLLOWUP_TIMEOUT_MS` rather than `loadConfig()`.
 
 **Observed and investigated, not an 008 defect:** a `stop` issued while a server was still shutting down answered `200` again rather than a `409` refusal, and `status` briefly read `starting` during the same shutdown window. Traced to the agent's timing, not the console — `describeStop` was shown to produce identical output from the same `AgentResult` the Discord path receives, and the steady-state behaviour is correct (*"Already stopped — nothing was done."*, exit 2). Worth a look in a future feature; out of scope here.
+
+
+---
+
+## Close-out (2026-08-10)
+
+**Signed off by the operator in the flow.** The one manual, human-in-the-loop item —
+a real Ctrl-C delivered to a live `reveille start`, which Windows cannot deliver
+programmatically to another process's SIGINT handler — was **performed at a real terminal
+and passed**: the console printed *"Stopped watching. The launch was already issued and is
+unaffected."* and Satisfactory reached `running` regardless.
+
+- [X] MANUAL Ctrl-C during a live `reveille start` — sentence printed, launch survived (FR-019)
+
+Gate at close: `npm run check:all` green, **230 tests**. 52/52 tasks. Card → done.
