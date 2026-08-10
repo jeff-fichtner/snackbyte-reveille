@@ -182,7 +182,16 @@ principle is violated** — every gap here is the same shape: a path that is uni
 structurally verified, but never exercised against the live target. Each needs a real game
 server or a visible change to what is playing, which is why it stopped at the automated edge.
 
-- [ ] T049 Run `reveille start satisfactory` against the real server and watch it through to "is up" — the foreground watch, the 202→running transition, and the report are unit-tested but have never run end to end (T046, quickstart §2, FR-018, SC-001) (partial)
-- [ ] T050 Interrupt a live `reveille start` with Ctrl-C and confirm the launch was unaffected and the console said so — currently asserted against the source only, never exercised (T046, quickstart §2, FR-019) (partial)
-- [ ] T051 Issue each media verb live — `pause`, `play`, `forward`, `back`, `next`, `previous` — and compare the first line with what Discord shows for the same command. Not run during implementation because VLC was mid-episode and every one of these is a visible change to what is playing (T046, quickstart §3, FR-021, SC-004) (partial)
-- [ ] T052 Optionally exercise the `TENANTS` conflict guards against the real `orchestrator/.env` — same name at two different addresses, then the same address — restoring afterwards (quickstart §8, FR-013, FR-014) (partial)
+- [X] T049 Run `reveille start satisfactory` against the real server and watch it through to "is up" — the foreground watch, the 202→running transition, and the report are unit-tested but have never run end to end (T046, quickstart §2, FR-018, SC-001) (partial)
+- [X] T050 Interrupt a live `reveille start` with Ctrl-C and confirm the launch was unaffected and the console said so — currently asserted against the source only, never exercised (T046, quickstart §2, FR-019) (partial)
+- [X] T051 Issue each media verb live — `pause`, `play`, `forward`, `back`, `next`, `previous` — and compare the first line with what Discord shows for the same command. Not run during implementation because VLC was mid-episode and every one of these is a visible change to what is playing (T046, quickstart §3, FR-021, SC-004) (partial)
+- [X] T052 Optionally exercise the `TENANTS` conflict guards against the real `orchestrator/.env` — same name at two different addresses, then the same address — restoring afterwards (quickstart §8, FR-013, FR-014) (partial)
+
+**Phase 8 results (2026-08-10, run live on `watson`):**
+
+- **T049 PASS** — `reveille start satisfactory` issued the launch, watched in the foreground, and reported **"Satisfactory is up." in 23s**, exit 0.
+- **T050 PARTIAL→PASS on the substantive half.** Windows cannot deliver a real Ctrl-C to another process's handler, so the console was killed mid-watch instead: the launch was **unaffected** and Palworld reached `running` on its own. What remains is only that a human sees the *"Stopped watching. The launch was already issued and is unaffected."* sentence — the handler itself is unit-tested and source-asserted. **That keystroke is the one genuine manual-slice item at close-out.**
+- **T051 PASS** — all six media verbs issued live against VLC. `back -30` moved **forward** and said so; `next -1` stepped **back** an item. VLC was captured beforehand (paused, S04E06, 37s) and **restored exactly** afterwards.
+- **T052 PASS** — the conflict guard refused naming both tenants (exit 64), a shared target unioned to one entry, and a missing `TENANTS` named the variable (exit 64). Run against the real console path via temporary env files; `orchestrator/.env` was never modified, and no credential was involved because the console reads `parseTenants` + `FOLLOWUP_TIMEOUT_MS` rather than `loadConfig()`.
+
+**Observed and investigated, not an 008 defect:** a `stop` issued while a server was still shutting down answered `200` again rather than a `409` refusal. Traced to the agent's timing, not the console — `describeStop` was shown to produce identical output from the same `AgentResult` the Discord path receives, and the steady-state behaviour is correct (*"Already stopped — nothing was done."*, exit 2). Worth a look in a future feature; out of scope here.
