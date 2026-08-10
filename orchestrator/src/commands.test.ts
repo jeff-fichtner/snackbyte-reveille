@@ -21,6 +21,14 @@ import {
   DEFAULT_SEEK_SECONDS,
   DEFAULT_STEP_COUNT,
   NO_MEDIA_TARGET,
+  runStart,
+  runStop,
+  runStatus,
+  runPause,
+  runResume,
+  runSeek,
+  runStep,
+  runAddress,
 } from './commands.ts';
 import { describeFollowup } from './followup.ts';
 import type { ControlledServer } from './config.ts';
@@ -1315,4 +1323,130 @@ test('007 T041 — sendReply does not call itself, and both send paths log (SC-0
   // The follow-up posts with followUp(), so it cannot reuse sendReply — it must still log.
   const followupSrc = readFileSync(fileURLToPath(new URL('./followup.ts', import.meta.url)), 'utf8');
   assert.match(followupSrc, /logDiagnostic\(/, 'the follow-up must record its operator half too');
+});
+
+// ── 008 T007: the extracted cores are what BOTH surfaces run ──────────────────
+// The `run*` functions hold every decision a command makes — which verb is sent, which
+// default is applied, how a sign is read. Discord and the local console both call them, so
+// these tests are what make 008 SC-004 structural rather than aspirational: the two
+// surfaces cannot answer the same command differently because there is only one answer.
+
+/** An agent that records the verb it was asked for and answers with a canned result. */
+function stubAgent(result: AgentResult): { agent: AgentClient; calls: string[] } {
+  const calls: string[] = [];
+  const record = (verb: string): Promise<AgentResult> => {
+    calls.push(verb);
+    return Promise.resolve(result);
+  };
+  const agent = {
+    start: () => record('start'),
+    stop: () => record('stop'),
+    pause: () => record('pause'),
+    play: () => record('play'),
+    status: () => record('status'),
+    seek: (s: number) => record(`seek:${s}`),
+    next: (c: number) => record(`next:${c}`),
+    previous: (c: number) => record(`previous:${c}`),
+  } as unknown as AgentClient;
+  return { agent, calls };
+}
+
+test('a core returns EXACTLY what its describe function produces (FR-023 is inherited, not re-decided)', async () => {
+  // The console shows `reply.text`; if a core reworded anything, the console could claim an
+  // outcome the agent never reported. Identity here is what makes that impossible.
+  const result = reached(202, { state: 'starting' });
+  const { agent } = stubAgent(result);
+  const agents = new Map([['palworld', agent]]);
+
+  const start = await runStart(agents, 'palworld');
+  assert.deepEqual(start.reply, describeStart(result), 'runStart must not reword describeStart');
+  assert.equal(start.serverName, 'palworld', 'the core names the target it acted on');
+  assert.equal(start.result, result, 'the raw result is carried so the follow-up can arm on a 202');
+
+  const stop = await runStop(new Map([['palworld', stubAgent(result).agent]]), 'palworld');
+  assert.deepEqual(stop.reply, describeStop(result), 'runStop must not reword describeStop');
+});
+
+test('the sign becomes a choice of VERB, and only a magnitude crosses the seam (005 FR-005)', async () => {
+  const result = reached(200, { state: 'playing' });
+
+  // `/next -3` steps BACK three, and the reply says so. The negative never reaches the agent.
+  const back = stubAgent(result);
+  const outNext = await runStep(new Map([['vlc', back.agent]]), 'vlc', 'next', -3);
+  assert.deepEqual(back.calls, ['previous:3'], 'a negative count swaps the verb and sends a magnitude');
+  assert.deepEqual(outNext.reply, describeStep(result, 'previous', 3));
+
+  // `/previous -2` therefore steps FORWARD two — the same rule, mirrored.
+  const fwd = stubAgent(result);
+  await runStep(new Map([['vlc', fwd.agent]]), 'vlc', 'previous', -2);
+  assert.deepEqual(fwd.calls, ['next:2'], 'the rule is symmetric, not special-cased for /next');
+
+  // Zero has no direction to reverse, so it stays as asked.
+  const zero = stubAgent(result);
+  await runStep(new Map([['vlc', zero.agent]]), 'vlc', 'next', 0);
+  assert.deepEqual(zero.calls, ['next:0'], 'zero is passed through, not reversed');
+
+  // Omitted count is the documented default, applied in exactly one place.
+  const dflt = stubAgent(result);
+  await runStep(new Map([['vlc', dflt.agent]]), 'vlc', 'next');
+  assert.deepEqual(dflt.calls, [`next:${DEFAULT_STEP_COUNT}`]);
+});
+
+test('seek passes its signed amount through exactly — no clamp, no magnitude conversion', async () => {
+  const result = reached(200, { state: 'playing' });
+  for (const seconds of [30, -30, 0, 99999, -1]) {
+    const { agent, calls } = stubAgent(result);
+    const out = await runSeek(new Map([['vlc', agent]]), 'vlc', seconds);
+    assert.deepEqual(calls, [`seek:${seconds}`], `seek(${seconds}) must cross unchanged`);
+    assert.deepEqual(out.reply, describeSeek(result, seconds));
+  }
+});
+
+test('an unknown name contacts NOTHING and carries no result (FR-021, FR-030)', async () => {
+  const { agent, calls } = stubAgent(reached(200, { state: 'running' }));
+  const agents = new Map([['palworld', agent]]);
+
+  for (const outcome of [
+    await runStart(agents, 'nosuchgame'),
+    await runStop(agents, 'nosuchgame'),
+    await runPause(agents, 'nosuchgame'),
+    await runResume(agents, 'nosuchgame'),
+    await runSeek(agents, 'nosuchgame', 30),
+    await runStep(agents, 'nosuchgame', 'next', 1),
+  ]) {
+    assert.equal(outcome.reply.tone, 'refused', 'an unknown name is refused, never routed');
+    assert.match(outcome.reply.text, /palworld/, 'the refusal lists the valid names');
+    assert.equal(outcome.result, undefined, 'nothing was launched, so nothing can arm a follow-up');
+  }
+  assert.deepEqual(calls, [], 'the configured agent must never be touched by a wrong name');
+
+  // `/address` resolves against ports rather than agents, and must refuse the same way.
+  const addr = await runAddress(new Map([['palworld', 8211]]), 'nosuchgame');
+  assert.equal(addr.reply.tone, 'refused');
+  assert.match(addr.reply.text, /palworld/);
+});
+
+test('status folds every target and names none of them', async () => {
+  const up = stubAgent(reached(200, { state: 'running' }));
+  const down = stubAgent(reached(200, { state: 'stopped' }));
+  const out = await runStatus(new Map([['palworld', up.agent], ['satisfactory', down.agent]]));
+
+  assert.deepEqual(up.calls, ['status'], 'status is a pure read');
+  assert.deepEqual(down.calls, ['status']);
+  assert.equal(out.serverName, undefined, 'a fold names no single target');
+  assert.match(out.reply.text, /Palworld/);
+  assert.match(out.reply.text, /Satisfactory/);
+});
+
+test('every media core sends its own verb and no other', async () => {
+  const result = reached(200, { state: 'paused' });
+  const cases: [string, (a: Map<string, AgentClient>) => Promise<unknown>][] = [
+    ['pause', (a) => runPause(a, 'vlc')],
+    ['play', (a) => runResume(a, 'vlc')],
+  ];
+  for (const [expected, run] of cases) {
+    const { agent, calls } = stubAgent(result);
+    await run(new Map([['vlc', agent]]));
+    assert.deepEqual(calls, [expected], `expected exactly one ${expected}`);
+  }
 });

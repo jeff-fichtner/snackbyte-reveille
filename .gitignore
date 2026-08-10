@@ -14,6 +14,9 @@ build/
 # logs
 *.log
 npm-debug.log*
+# the console's per-service logs (008). `*.log` above does NOT cover the rotated
+# generation, which ends `.log.1` — hence the directory, not just the pattern.
+logs/
 
 # spec kit — downloaded extension-catalog cache, refetched on demand
 .specify/extensions/.cache/

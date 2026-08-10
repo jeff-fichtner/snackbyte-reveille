@@ -16,6 +16,7 @@
   },
   "scripts": {
     "start": "node --env-file=.env src/index.ts",
+    "console": "node --env-file=.env src/console/index.ts",
     "typecheck": "tsc -p tsconfig.json",
     "test": "node --test \"src/**/*.test.ts\""
   }

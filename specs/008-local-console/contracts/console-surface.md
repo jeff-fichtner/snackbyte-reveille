@@ -62,7 +62,12 @@ the shared `runX` cores. The console applies no clamp, no bound, and no conversi
 | `reveille plane down [service]` | Stop Reveille's own processes. Touches no controlled target. |
 | `reveille plane restart [service]` | `down` then `up`, scoped the same way. |
 | `reveille plane status [service]` | Up/down per service, worded so it cannot be mistaken for target state. |
-| `reveille plane logs [service]` | Merged, followable view of the services' output. |
+| `reveille plane logs [service]` | Merged, labelled view of the services' recent output, then the file paths. |
+
+`plane logs` is a **snapshot, not a `tail -f`** — decided during implementation. A continuous
+follow runs until interrupted and therefore never produces an exit code, which contradicts
+§6's always-terminates rule. The merged view is what replaces the four windows; the paths are
+printed alongside it so following one with any tool stays a copy-paste away.
 
 Omitting `service` means all services (FR-007).
 

@@ -958,3 +958,88 @@ The seam grows additively (contract v5): three **optional response** fields a ga
 never sets, and an older agent that omits them still works. No target identifier is
 involved (Constitution I). The public homepage's claim that "Reveille never sees *what* is
 loaded" becomes false and is corrected as a planned task.
+
+---
+
+## 025 · A local console is a second client of the seam, not a fourth kind of component
+**Date:** 2026-08-10 · **Status:** accepted
+**Closes:** candidate: how the operator commands targets from the host (008)
+
+**Context.** Reveille has two audiences and until now only one of them had an interface.
+Discord is the multi-person surface and is finished. The **operator layer is one person on
+one machine**, and their interface was `scripts/reveille.ps1` — which manages the control-plane
+processes (in four PowerShell windows) and cannot command a target at all. To start a game
+server *from the machine the game server runs on*, the operator opened Discord.
+
+008 adds a local `reveille` console that does both. The uncomfortable part is stated rather
+than skipped: that console is **welded to nothing** and **talks to agents over the seam**,
+which is the orchestrator's own definition in Constitution II — and there is supposed to be
+exactly one orchestrator. The Development Workflow's acceptance test makes a fourth kind of
+component an architecture change requiring this entry *before* implementation.
+
+**Decision.** The console is **not a component**, and the test that distinguishes it is
+sharper than "what is it welded to":
+
+> All three component kinds **run when nobody is watching.** That is what makes weldedness
+> meaningful — the orchestrator holds a gateway open, the agent stands ready at a port, the
+> emitter waits on a broadcast domain. The console is a one-shot process started by a human
+> who is standing right there, and it exits.
+
+The honest comparison is `curl` aimed at an agent with the target names filled in and the
+response rendered. Delete it and nothing degrades; no other component knows it exists. It
+therefore receives **no package** — a package would assert in the repository layout exactly
+the componenthood this entry denies, and the layout is the version people believe.
+
+**The rule that keeps this true, and it is load-bearing: the console must never outlive the
+human who ran it.**
+
+| | Status |
+|---|---|
+| State carried between invocations — cache, memo, manifest, "last seen" | **Forbidden** |
+| A background poller, watcher, or daemon that survives the terminal | **Forbidden** |
+| Any scheduled work of the console's own | **Forbidden** |
+| A `--watch` flag, or any always-on mode | **Forbidden** |
+| Blocking in the **foreground** while the human waits, bounded, Ctrl-C-able | **Permitted** |
+| Launching the orchestrator and agents, which then outlive it | **Permitted** — see below |
+
+`reveille plane up` does leave processes running after the terminal closes, and that is not a
+contradiction: those processes are the orchestrator and agents, **existing components with
+their own mandate**. The console is a *launcher* there, not a controller. Launching a
+component is not becoming one.
+
+**Why it won.** Chosen over three alternatives:
+
+- **Declaring it a fourth kind and amending Constitution II.** Rejected because it is not
+  true — the taxonomy is about things that run unattended, and admitting a "kind" that exits
+  when its human walks away would dilute the one distinction that makes every placement
+  question answerable.
+- **Routing the console through the orchestrator.** Rejected on two counts: the orchestrator
+  has **no inbound port** today (it dials out to Discord), so this would mean opening one to
+  buy nothing; and it would break the property that most justifies a local path — the console
+  keeps working when Discord or the bot is down.
+- **Not building it; use `curl` by hand.** This is genuinely what the console *is*, minus the
+  name resolution, the shared wording, and the exit codes. Rejected because the parts it adds
+  are the parts that keep it honest: names come from `TENANTS`, and every member-visible
+  sentence comes from the same functions Discord renders, so the two surfaces cannot drift.
+
+**Consequences.**
+
+- **The seam is untouched.** No new verb, no request parameter, no response field, and no
+  target identifier in any path — the same eight verbs at v5, same direction. `contract/` and
+  `agent/` are not modified by 008 at all, which is the strongest available evidence.
+- The console lives at `orchestrator/src/console/`, inside the workspace whose code it reuses.
+  This is also the only placement where `eslint`'s `no-restricted-imports` seam guard needs no
+  exemption and no deep import: intra-package relative imports are ordinary.
+- A **second copy of the target map is forbidden.** The console reads `TENANTS` through the
+  orchestrator's own `parseTenants`, unioned across tenants because it has no guild. That
+  union is not an isolation break: 004's boundary is guild↔guild, and the host operator with
+  loopback access to every agent sits outside it. A name mapping to *different* addresses
+  across tenants fails loud rather than picking one.
+- **The `plane` service list is derived, not tabled.** `reveille.ps1` hardcoded each service's
+  port, which was already written in `agent/.env.<target>` and again inside the `TENANTS` URL —
+  three copies of one number. Services are discovered from the env files instead. The *target
+  map* and the *service list* are deliberately different questions with different sources.
+- Any future change that gives the console a daemon mode, a background watcher, or state
+  between runs has made a **second unattended thing able to start and stop targets** — the
+  "ownership of recovery" fight recorded in `03-deferred.md`, where any two owners fight and
+  the fight looks like flapping. That is an architecture change and supersedes this entry.

@@ -10,6 +10,13 @@
 # Bash scripts must be LF regardless of platform or they will not execute.
 *.sh text eol=lf
 
+# Batch files are the mirror image: cmd.exe mis-parses an LF-only file and emits a
+# stray error for every comment line ("'M' is not recognized" — the tail of REM),
+# on stderr, on every single invocation. Harmless-looking and genuinely bad for an
+# operator tool whose stderr a script may read. CRLF, always (008).
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
 # Never munge binaries.
 *.png binary
 *.jpg binary

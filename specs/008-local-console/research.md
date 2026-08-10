@@ -188,11 +188,23 @@ it is the same query the current script makes, and the console is a Windows oper
 already. Matching gets *simpler* than today's, because dropping the `powershell.exe` wrapper
 means only `node.exe` can match.
 
+**Amended during implementation: the paths must be ABSOLUTE.** The first cut launched services
+with repo-relative paths, so a command line read `--env-file=agent/.env.palworld
+agent/src/index.ts` — **identical in every checkout of this repository.** A second clone on
+the same machine would therefore match, and `plane down` in one would stop the other's agents.
+This was not hypothetical: it fired within minutes, when a throwaway probe in a temp directory
+was matched as though it were the real Palworld agent. Services are now launched and matched
+by absolute path, so the repository root is part of a service's identity. Comparison is
+case- and separator-insensitive, because Windows reports neither consistently.
+
 **Alternatives rejected.**
 - *A PID file.* Forbidden alone by FR-032. A PID plus command-line verification would be
   legal but needs the same enumeration anyway, so it buys nothing.
 - *A dependency such as `ps-list`.* A runtime dependency for one query, in a repository that
   requires a `DECISIONS.md` entry to add one.
+- *Matching the relative form as well, for backwards compatibility.* It would permanently
+  reintroduce the cross-checkout hazard to solve a one-time migration. Services started by
+  the old script were stopped and relaunched through the console instead.
 
 ## 9. How the console gets its configuration
 

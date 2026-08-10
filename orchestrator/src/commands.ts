@@ -737,121 +737,135 @@ export function describeCommandList(groups: readonly CommandGroup[]): Reply {
 }
 
 /**
- * `/status` — every server's state at once, read-only (US2). Queries all agents in
- * parallel; each server is independent, so one unreachable agent does not stop the
- * others being reported. Names no single server — it reports them all.
+ * What running one command produced, with **no surface attached** (008 T005).
+ *
+ * This is the seam between *doing the thing* and *telling someone about it*. Discord's
+ * handlers render it as an embed; the local console prints it and picks an exit code. Two
+ * surfaces, one set of decisions — which verb is sent, which default is applied, how a sign
+ * is read — so they cannot answer the same command differently (008 SC-004).
+ *
+ * Sharing only `describeX` would share the **wording** and leave the **behaviour**
+ * duplicated once per surface, which is the drift 005 already shipped once.
+ *
+ * Every field is present-but-possibly-undefined rather than optional: `exactOptionalPropertyTypes`
+ * makes an omitted-vs-undefined distinction that buys nothing here and costs a conditional
+ * at every construction site.
  */
-export async function handleStatus(
-  interaction: ChatInputCommandInteraction,
-  agents: ReadonlyMap<string, AgentClient>,
-): Promise<void> {
+export interface CommandOutcome {
+  readonly reply: Reply;
+  /** The target acted on, when the command named one. Becomes the embed title. */
+  readonly serverName: string | undefined;
+  /**
+   * The raw agent result, when one was obtained. Only `/start` needs it — the follow-up
+   * arms on a 202 and on nothing else (FR-030) — but it is uniform so no caller has to
+   * know which commands carry it.
+   */
+  readonly result: AgentResult | undefined;
+  /**
+   * The per-target readings behind a status fold, for a surface that can say more about
+   * them. The console uses it to answer the one question only the local vantage point can
+   * (008 FR-025): when a target is unreachable, is its *agent process* even running?
+   * Discord ignores it — it has no way to know, and the member has nothing to do with it.
+   */
+  readonly statuses: readonly ServerStatus[] | undefined;
+}
+
+/** Every server's state at once, read-only (US2). Names no single server — it reports them all. */
+export async function runStatus(agents: ReadonlyMap<string, AgentClient>): Promise<CommandOutcome> {
+  // Queried in parallel; each server is independent, so one unreachable agent does not stop
+  // the others being reported.
   const statuses = await Promise.all(
     [...agents.entries()].map(
       async ([name, agent]): Promise<ServerStatus> => ({ name, result: await agent.status() }),
     ),
   );
-  await sendReply(interaction, describeStatus(statuses));
+  return { reply: describeStatus(statuses), serverName: undefined, result: undefined, statuses };
 }
 
-export async function handleStart(
-  interaction: ChatInputCommandInteraction,
+export async function runStart(
   agents: ReadonlyMap<string, AgentClient>,
   serverName: string,
-): Promise<AgentResult | undefined> {
+): Promise<CommandOutcome> {
   const routed = routeToAgent(serverName, agents);
-  if ('reply' in routed) {
-    await sendReply(interaction, routed.reply, serverName);
-    return undefined; // an unknown name launched nothing — no follow-up (FR-030)
-  }
+  // An unknown name launched nothing, so it carries no result and arms no follow-up (FR-030).
+  if ('reply' in routed) return { reply: routed.reply, serverName, result: undefined, statuses: undefined };
   const result = await routed.agent.start();
-  await sendReply(interaction, describeStart(result), serverName);
-  // The caller arms a follow-up only on a 202 (an actual launch), never on a
-  // refusal or an unreachable host (FR-030).
-  return result;
+  return { reply: describeStart(result), serverName, result, statuses: undefined };
 }
 
-export async function handleStop(
-  interaction: ChatInputCommandInteraction,
+export async function runStop(
   agents: ReadonlyMap<string, AgentClient>,
   serverName: string,
-): Promise<void> {
+): Promise<CommandOutcome> {
   const routed = routeToAgent(serverName, agents);
-  if ('reply' in routed) {
-    await sendReply(interaction, routed.reply, serverName);
-    return;
-  }
-  await sendReply(interaction, describeStop(await routed.agent.stop()), serverName);
+  if ('reply' in routed) return { reply: routed.reply, serverName, result: undefined, statuses: undefined };
+  const result = await routed.agent.stop();
+  return { reply: describeStop(result), serverName, result, statuses: undefined };
 }
 
 /**
- * `/address <server>` — where players connect for that one server. It names a
- * server because two servers share the public IP but differ in game port (the
- * multi-server config; the single-port `/address` from `main` is reconciled here).
+ * Where players connect for one server. It names a server because two servers share the
+ * public IP but differ in game port.
  */
-export async function handleAddress(
-  interaction: ChatInputCommandInteraction,
+export async function runAddress(
   ports: ReadonlyMap<string, number>,
   serverName: string,
-): Promise<void> {
+): Promise<CommandOutcome> {
   const port = ports.get(serverName);
   if (port === undefined) {
-    await sendReply(interaction, unknownServer(serverName, [...ports.keys()]), serverName);
-    return;
+    return { reply: unknownServer(serverName, [...ports.keys()]), serverName, result: undefined, statuses: undefined };
   }
-  await sendReply(interaction, describeAddress(await lookupPublicIp(), port), serverName);
+  // No agent is contacted — the address comes from config plus an internet lookup.
+  return { reply: describeAddress(await lookupPublicIp(), port), serverName, result: undefined, statuses: undefined };
 }
 
-/**
- * `/pause` — pause the one media player (003). A bare command (no subcommand), so it
- * is handed the media target's name from config. Names the target in the reply title.
- */
-export async function handlePause(
-  interaction: ChatInputCommandInteraction,
+/** Pause the one media player (003). Bare — the target's name comes from config. */
+export async function runPause(
   agents: ReadonlyMap<string, AgentClient>,
   serverName: string,
-): Promise<void> {
+): Promise<CommandOutcome> {
   const routed = routeToAgent(serverName, agents);
-  if ('reply' in routed) {
-    await sendReply(interaction, routed.reply, serverName);
-    return;
-  }
-  await sendReply(interaction, describePause(await routed.agent.pause()), serverName);
+  if ('reply' in routed) return { reply: routed.reply, serverName, result: undefined, statuses: undefined };
+  const result = await routed.agent.pause();
+  return { reply: describePause(result), serverName, result, statuses: undefined };
+}
+
+/** Resume the one media player (003). */
+export async function runResume(
+  agents: ReadonlyMap<string, AgentClient>,
+  serverName: string,
+): Promise<CommandOutcome> {
+  const routed = routeToAgent(serverName, agents);
+  if ('reply' in routed) return { reply: routed.reply, serverName, result: undefined, statuses: undefined };
+  const result = await routed.agent.play();
+  return { reply: describeResume(result), serverName, result, statuses: undefined };
 }
 
 /**
- * `/forward [seconds]` and `/back [seconds]` — move the position relative to now (005).
- *
- * Bare commands, so the target comes from config exactly as `/pause` does. `seconds` is
- * already **signed** by the caller: the sign carries the direction, which is why one
- * handler serves both commands and no branch here decides which way to go.
+ * Move the position relative to now (005). `seconds` is already **signed** by the caller:
+ * the sign carries the direction, which is why one function serves both `/forward` and
+ * `/back` and no branch here decides which way to go.
  */
-export async function handleSeek(
-  interaction: ChatInputCommandInteraction,
+export async function runSeek(
   agents: ReadonlyMap<string, AgentClient>,
   serverName: string,
   seconds: number,
-): Promise<void> {
+): Promise<CommandOutcome> {
   const routed = routeToAgent(serverName, agents);
-  if ('reply' in routed) {
-    await sendReply(interaction, routed.reply, serverName);
-    return;
-  }
-  await sendReply(interaction, describeSeek(await routed.agent.seek(seconds), seconds), serverName);
+  if ('reply' in routed) return { reply: routed.reply, serverName, result: undefined, statuses: undefined };
+  const result = await routed.agent.seek(seconds);
+  return { reply: describeSeek(result, seconds), serverName, result, statuses: undefined };
 }
 
-/** `/next` and `/previous` — step blindly through this tenant's media playlist (005). */
-export async function handleStep(
-  interaction: ChatInputCommandInteraction,
+/** Step blindly through this tenant's media playlist (005). */
+export async function runStep(
   agents: ReadonlyMap<string, AgentClient>,
   serverName: string,
   step: 'next' | 'previous',
   count: number = DEFAULT_STEP_COUNT,
-): Promise<void> {
+): Promise<CommandOutcome> {
   const routed = routeToAgent(serverName, agents);
-  if ('reply' in routed) {
-    await sendReply(interaction, routed.reply, serverName);
-    return;
-  }
+  if ('reply' in routed) return { reply: routed.reply, serverName, result: undefined, statuses: undefined };
   // The sign becomes a choice of VERB, and only a magnitude crosses the seam (FR-005,
   // contracts/seam-v5.md). A zero has no direction to reverse, so it stays as asked.
   const reversed = count < 0;
@@ -862,7 +876,86 @@ export async function handleStep(
   const result = await (direction === 'next'
     ? routed.agent.next(magnitude)
     : routed.agent.previous(magnitude));
-  await sendReply(interaction, describeStep(result, direction, magnitude), serverName);
+  return { reply: describeStep(result, direction, magnitude), serverName, result, statuses: undefined };
+}
+
+// ── The Discord surface ───────────────────────────────────────────────────────
+// Each handler is now *run → send*, and decides nothing. Anything that changes what a
+// command DOES belongs in the `run*` core above, so the console cannot diverge from it.
+
+/**
+ * `/status` — every server's state at once, read-only (US2).
+ */
+export async function handleStatus(
+  interaction: ChatInputCommandInteraction,
+  agents: ReadonlyMap<string, AgentClient>,
+): Promise<void> {
+  const { reply, serverName } = await runStatus(agents);
+  await sendReply(interaction, reply, serverName);
+}
+
+export async function handleStart(
+  interaction: ChatInputCommandInteraction,
+  agents: ReadonlyMap<string, AgentClient>,
+  serverName: string,
+): Promise<AgentResult | undefined> {
+  const outcome = await runStart(agents, serverName);
+  await sendReply(interaction, outcome.reply, outcome.serverName);
+  // The caller arms a follow-up only on a 202 (an actual launch), never on a
+  // refusal or an unreachable host (FR-030).
+  return outcome.result;
+}
+
+export async function handleStop(
+  interaction: ChatInputCommandInteraction,
+  agents: ReadonlyMap<string, AgentClient>,
+  serverName: string,
+): Promise<void> {
+  const outcome = await runStop(agents, serverName);
+  await sendReply(interaction, outcome.reply, outcome.serverName);
+}
+
+/** `/address <server>` — where players connect for that one server. */
+export async function handleAddress(
+  interaction: ChatInputCommandInteraction,
+  ports: ReadonlyMap<string, number>,
+  serverName: string,
+): Promise<void> {
+  const outcome = await runAddress(ports, serverName);
+  await sendReply(interaction, outcome.reply, outcome.serverName);
+}
+
+/** `/pause` — pause the one media player (003). */
+export async function handlePause(
+  interaction: ChatInputCommandInteraction,
+  agents: ReadonlyMap<string, AgentClient>,
+  serverName: string,
+): Promise<void> {
+  const outcome = await runPause(agents, serverName);
+  await sendReply(interaction, outcome.reply, outcome.serverName);
+}
+
+/** `/forward [seconds]` and `/back [seconds]` — move the position relative to now (005). */
+export async function handleSeek(
+  interaction: ChatInputCommandInteraction,
+  agents: ReadonlyMap<string, AgentClient>,
+  serverName: string,
+  seconds: number,
+): Promise<void> {
+  const outcome = await runSeek(agents, serverName, seconds);
+  await sendReply(interaction, outcome.reply, outcome.serverName);
+}
+
+/** `/next` and `/previous` — step blindly through this tenant's media playlist (005). */
+export async function handleStep(
+  interaction: ChatInputCommandInteraction,
+  agents: ReadonlyMap<string, AgentClient>,
+  serverName: string,
+  step: 'next' | 'previous',
+  count: number = DEFAULT_STEP_COUNT,
+): Promise<void> {
+  const outcome = await runStep(agents, serverName, step, count);
+  await sendReply(interaction, outcome.reply, outcome.serverName);
 }
 
 /** `/play` — resume the one media player (003). */
@@ -871,10 +964,6 @@ export async function handleResume(
   agents: ReadonlyMap<string, AgentClient>,
   serverName: string,
 ): Promise<void> {
-  const routed = routeToAgent(serverName, agents);
-  if ('reply' in routed) {
-    await sendReply(interaction, routed.reply, serverName);
-    return;
-  }
-  await sendReply(interaction, describeResume(await routed.agent.play()), serverName);
+  const outcome = await runResume(agents, serverName);
+  await sendReply(interaction, outcome.reply, outcome.serverName);
 }

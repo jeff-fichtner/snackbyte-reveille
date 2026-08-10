@@ -64,14 +64,48 @@ npm run start:vlc          -w @reveille/agent   # needs agent/.env.vlc (media)
 npm start                  -w @reveille/orchestrator   # needs orchestrator/.env
 ```
 
-On `watson`, start/stop the whole control plane (orchestrator + every agent) at once:
+On `watson`, the operator's interface is **one local command**, `reveille` (008). It does
+two jobs, and the split between them is the feature's central decision:
 
 ```powershell
-./scripts/reveille.ps1 start | stop | restart | status
+# TARGETS — bare verbs, mirroring the Discord commands one-for-one
+reveille start satisfactory        # the game server
+reveille stop palworld             # the game server
+reveille status                    # every target's state
+reveille pause | play | next [n] | previous [n] | forward [s] | back [s]
+reveille address <game>
+reveille help                      # and bare `reveille` — the same listing
+
+# THE CONTROL PLANE — Reveille's own node processes, behind `plane`
+reveille plane up | down | restart | status | logs [service]
 ```
 
-It manages only those node processes — never the game servers or VLC themselves,
-which are controlled from Discord.
+**Bare verbs act on targets; process verbs live under `plane`.** `up`/`down` rather than
+`plane start`/`plane stop`, so the collision is gone at the level of the *word* rather than
+resolved by counting arguments. A bare `reveille start` or `reveille stop` **fails and names
+both objects** — it never guesses. `status` is the sharper trap and gets the same care: the
+plane report says whose processes it is describing, because the interesting case is the one
+where the two answers differ (agent up, game stopped).
+
+`plane` manages only those node processes — **never** the game servers or VLC themselves,
+which are controlled from Discord or by the target verbs above. Services are **discovered**
+from `agent/.env.*` plus `orchestrator/.env`, so a fourth target is managed the moment its
+env file exists; each agent's port comes from its own `AGENT_PORT` and nowhere else.
+
+**`plane up` spawns windowless and verifies.** No console window is created for any service
+(measured — `specs/008-local-console/m0-windows-spawn.md`), output goes to `logs/<service>.log`
+keeping **at most one** prior generation, and each service is confirmed *serving* before
+success is reported. That last part is not politeness: every env var here is required and
+throws at boot, so a misconfigured service dies in a second — a failure that used to be
+visible in the window the launcher spawned. **Removing the window is what creates the
+obligation to check.**
+
+The console **talks straight to the agents**; the orchestrator is never in the path, so every
+target command still works while the bot is down. It is deliberately **not a component**
+(DECISIONS 025) and **must never outlive the human who ran it** — no state between runs, no
+background poller, no daemon, no `--watch`. `reveille start` watches in the *foreground*,
+bounded by the orchestrator's own `FOLLOWUP_TIMEOUT_MS`, and Ctrl-C stops the watching but
+never the launch.
 
 **There is no build step.** Node 24 runs TypeScript directly by stripping types, so
 `tsc` is a type checker that never emits. `erasableSyntaxOnly` is on, which means a
