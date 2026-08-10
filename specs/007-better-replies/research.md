@@ -100,8 +100,40 @@ requires deliberately typing an absurd count, it affects one target, `/status` k
 answering, and recovery is restarting the agent. All four hold at 55 hours exactly as they
 held at 6. A time bound would have to invent a number *and* report a partial step — new
 reply vocabulary and state about an in-flight operation — to guard an input nobody
-produces. That is more machinery than the risk. **No bound. The fallback is withdrawn, not
-deferred.**)
+produces. That is more machinery than the risk. **No bound — but the exposure is
+larger than "it takes a long time", and is accepted with its eyes open.**)
+
+### 3a. The accepted exposure, stated plainly (2026-08-10)
+
+**A member can render a media target's acting commands unusable until an operator
+restarts the agent.** Not "slow" — unusable, and not self-healing. This is the accurate
+statement of the trade-off; §3 above originally framed it as a duration, which understated
+it.
+
+| | |
+|---|---|
+| **Trigger** | Any large count, e.g. `/next 999999`. One member, one typo. |
+| **Effect** | The agent holds its command mutex for the whole loop. `/pause`, `/play`, `/next`, `/forward`, `/back` queue behind it and never run. |
+| **Not affected** | `/status` answers throughout — it deliberately does not sit on the mutex. The process does not crash; nothing is corrupted; the other targets are untouched. |
+| **Secondary** | Discord interaction tokens expire after ~15 minutes, so queued commands eventually cannot reply at all. The orchestrator logs that and does not escalate. |
+| **Worst case** | At the end of a playlist with loop off, **no** step can land, so each iteration burns its full 2-second settle bound rather than ~200 ms. A count of 999,999 is then ~23 days, not ~55 hours. |
+| **Recovery** | `./scripts/reveille.ps1 restart`, or restart that agent alone. Operator action; nothing self-heals. |
+
+**Why accepted.** The recorded trust model is that any member of a private, trusted guild
+may issue any command (001 FR-001, unchanged since). Within that boundary this is the same
+class as a member spamming `/stop` — recoverable and self-inflicted. The one genuine
+difference is that spam self-resolves and this does not.
+
+**What was considered and not taken.** A **total wall-clock budget** per operation: the
+loop stops after N seconds and reports how far it actually got. It bounds *our* resource
+(how long the agent holds its own lock) rather than the member's intent (how far they may
+step), which is why it is not the invented policy a count cap would be. It was not taken
+because it requires the first **partial** reply in the system — "skipped 150, stopped
+there" — which is new vocabulary and state about an unfinished operation, for an input
+nobody produces by accident.
+
+**The trigger to revisit**: if this is ever hit in practice, even once, take the budget.
+The cost of the vocabulary is small next to a target that needs an operator to un-stick.)
 
 The spec's "very large count" edge case anticipated the *player's* behaviour ("not clamped, the
 player does what it does") but not **mutex starvation**, which is a property of our own agent.

@@ -145,6 +145,11 @@ the reply says so.
 - **A very long name.** The filename fallback is where long names come from — a release filename can exceed a phone's line width unaided, and the status reply puts it inline. It is shortened for display, visibly, so a reader can tell they are seeing part of a name rather than the whole of a strange one.
 - **A live stream with no duration.** Position is reported without a total, rather than showing a nonsense total.
 - **A count of zero.** Passed through as given, exactly as a seek of zero is: the thinnest handling, no special case.
+- **A very large count occupies the target until an operator intervenes.** Accepted
+  deliberately, and recorded rather than fixed (`research.md` §3a). The acting commands for
+  that one player queue and never run; `/status` keeps answering; nothing crashes and no
+  other target is affected; recovery is restarting the agent. This is a consequence of
+  "unbounded" (FR-016) meeting "indivisible" (FR-019), and both stand.
 - **A very large count.** Not clamped. The player does what it does, and the reply claims no result — the same posture as an over-long seek.
 - **The player becomes unreachable between acting and reporting.** The reply says the command was sent and that the player could not be asked about the result. It never guesses.
 
