@@ -247,3 +247,32 @@ test('007 T015 — OBSERVING is permitted and required; the traps stay avoided (
     'information.title is a title INDEX, not a name — the name is at information.category.meta.title',
   );
 });
+
+test('007 verify — a failed read while settling does not fail a step that already happened', async () => {
+  // The command is issued BEFORE the wait, so a read that throws mid-settle says nothing
+  // about whether the step landed. Letting it propagate turned a completed multi-step into
+  // a 500 and told the member "couldn't skip" about something that did.
+  let hits = 0;
+  const server = createServer((req, res) => {
+    hits++;
+    // Fail every read that follows the step command; the step itself succeeds.
+    if (!(req.url ?? '').includes('command=') && hits % 2 === 0) {
+      res.destroy();
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ state: 'playing', currentplid: hits }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as AddressInfo;
+  const adapter = createVlcAdapter({
+    target: 'vlc', port: 0, vlcBaseUrl: `http://127.0.0.1:${port}`, vlcPassword: 'test-password',
+  } as VlcConfig);
+
+  try {
+    // Must RESOLVE. Before the fix this rejected, and the caller turned that into a 500.
+    await adapter.next(1);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});

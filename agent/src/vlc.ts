@@ -294,7 +294,12 @@ async function currentItemId(config: VlcConfig): Promise<unknown> {
 async function settled(config: VlcConfig, before: unknown): Promise<void> {
   const deadline = Date.now() + SETTLE_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    if ((await currentItemId(config)) !== before) return;
+    // A read that FAILS is not a step that failed. The command was already issued and may
+    // well have landed, so letting this throw would turn a completed step into a 500 and
+    // tell the member "couldn't skip" about something that did — the same dishonesty 007
+    // removes, pointed backwards. Swallow it and keep waiting; the deadline still bounds us.
+    const now = await currentItemId(config).catch(() => before);
+    if (now !== before) return;
     await new Promise((resolve) => setTimeout(resolve, SETTLE_POLL_MS));
   }
 }
