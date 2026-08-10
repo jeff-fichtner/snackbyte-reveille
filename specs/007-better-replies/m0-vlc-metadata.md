@@ -147,7 +147,10 @@ cannot land, the wait bounds out and the loop moves on without concluding why.
 
 **Re-price the mutex exposure with this number, not §5's.** At ~200 ms per confirmed step, a
 count of 1,000,000 holds the agent's command mutex for roughly **55 hours**, not the ~6
-`research.md` §3 originally derived from 22 ms.
+`research.md` §3 originally derived from 22 ms. **This re-pricing does not change the
+no-bound decision** (`research.md` §3, settled 2026-08-10) — the reasoning was never about
+the size of the number. It matters here only because it is the correct figure, and because
+the *same* mismeasurement caused the real defect above.
 
 ---
 

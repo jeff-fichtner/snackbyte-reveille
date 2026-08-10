@@ -94,9 +94,14 @@ does not sit on the mutex. (This paragraph has been wrong twice, and the second 
 what §5 actually measured — and the design needed the *switch* latency, which §5a later
 measured at ~200 ms. **The exposure is roughly 9× what this section claimed when the
 unbounded-count trade-off was accepted**, and a step that cannot land costs its full 2 s
-bound. The trade-off's shape is unchanged, but its price was misquoted at the moment it was
-agreed, which makes the recorded **time-bound fallback** the stronger option rather than a
-contingency.)
+bound. **The correction does not change the decision, and it was a mistake to suggest it
+might** — settled 2026-08-10. The trade-off never rested on the number. It rested on: this
+requires deliberately typing an absurd count, it affects one target, `/status` keeps
+answering, and recovery is restarting the agent. All four hold at 55 hours exactly as they
+held at 6. A time bound would have to invent a number *and* report a partial step — new
+reply vocabulary and state about an in-flight operation — to guard an input nobody
+produces. That is more machinery than the risk. **No bound. The fallback is withdrawn, not
+deferred.**)
 
 The spec's "very large count" edge case anticipated the *player's* behaviour ("not clamped, the
 player does what it does") but not **mutex starvation**, which is a property of our own agent.
