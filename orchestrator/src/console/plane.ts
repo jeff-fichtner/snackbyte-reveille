@@ -219,20 +219,6 @@ export async function isAnswering(port: number): Promise<boolean> {
   }
 }
 
-/**
- * Is this service **running** — whoever started it?
- *
- * Keyed off the process, not the log, and that distinction is load-bearing. A log line is
- * the right *readiness* signal for a service this console just launched, because we can
- * watch the fresh log from a known offset. It is the wrong *liveness* signal for a service
- * started any other way: there would be no log, and the console would report a running
- * orchestrator as down — and then `plane up` would start a **second** one, which for the
- * orchestrator means two bots answering the same guild.
- */
-export async function isRunning(service: PlaneService): Promise<boolean> {
-  const found = await findServiceProcesses([service]);
-  return (found.get(service.label) ?? []).length > 0;
-}
 
 /** What happened to one service during a plane operation. */
 export interface ServiceOutcome {

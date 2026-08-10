@@ -94,11 +94,21 @@ interface Console {
 
 function build(repoRoot: string, env: NodeJS.ProcessEnv): Console {
   const targets = buildTargetMap(env);
-  const servers: ControlledServer[] = [...targets.values()].map((t) =>
-    t.kind === 'game'
-      ? { name: t.name, baseUrl: t.baseUrl, kind: 'game', publicPort: t.publicPort ?? 0 }
-      : { name: t.name, baseUrl: t.baseUrl, kind: 'media' },
-  );
+  const servers: ControlledServer[] = [...targets.values()].map((t) => {
+    if (t.kind !== 'game') return { name: t.name, baseUrl: t.baseUrl, kind: 'media' };
+    if (t.publicPort === undefined) {
+      // `?? 0` here would be a silent default of the exact shape this repository forbids:
+      // a game with no public port would answer `address` with `…:0` and the mistake would
+      // surface later, as a connect string nobody can use. `parseTenants` already rejects
+      // that shape, so this cannot fire — which is precisely why it must throw rather than
+      // paper over the case, if it ever does.
+      throw new Error(
+        `Target ${JSON.stringify(t.name)} is a game but has no public port. ` +
+          `TENANTS should have rejected this — do not run the console against a hand-edited map.`,
+      );
+    }
+    return { name: t.name, baseUrl: t.baseUrl, kind: 'game', publicPort: t.publicPort };
+  });
 
   return {
     repoRoot,

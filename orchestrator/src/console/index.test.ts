@@ -257,3 +257,30 @@ test('a target with no agent process on this host says so rather than guessing',
   );
   assert.match(notes[0] ?? '', /no agent process is configured on this host/);
 });
+
+test('no silent default stands in for a missing public port (fail-loud, not `?? 0`)', () => {
+  // Caught in review: `publicPort: t.publicPort ?? 0` would answer `address` with `…:0`
+  // rather than failing — a connect string nobody can use, discovered later and indirectly.
+  // `parseTenants` already rejects that shape, so the guard is unreachable; that is exactly
+  // why it must throw rather than substitute a number.
+  const entry = consoleSources().find((s) => s.file === 'index.ts');
+  assert.ok(entry !== undefined);
+
+  assert.equal(
+    /publicPort:\s*[a-zA-Z.]*\s*\?\?/.test(entry.code),
+    false,
+    'a public port must never fall back to a default value',
+  );
+  assert.match(entry.code, /has no public port/, 'the missing case throws, naming the target');
+});
+
+test('every console module fails loud on missing configuration rather than substituting', () => {
+  // The repo-wide rule: a missing required value must be a startup error naming itself, not
+  // a default that produces wrong behaviour somewhere else later.
+  for (const { file, code } of consoleSources()) {
+    // `?? []` / `?? ''` on collections are defensive empties, not configuration defaults —
+    // they cannot make the console act on the wrong thing. A numeric or URL default can.
+    const suspicious = code.match(/\?\?\s*(\d+|['"`]https?:)/g) ?? [];
+    assert.deepEqual(suspicious, [], `${file} has a numeric/address fallback: ${suspicious.join(', ')}`);
+  }
+});
