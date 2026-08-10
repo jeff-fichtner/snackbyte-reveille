@@ -15,19 +15,19 @@
   "card": {
     "id": "86bbbjw9z",
     "hash": "sha256:6147b5a69f91997b9625cec36fa6bc38390f0dfdd35f63bc2c2c57d9fb31b243",
-    "provenanceHash": "sha256:61503c57538f16a6c089f50489c47bb48264beaa1dc240e59c33c703a0e82300"
+    "provenanceHash": "sha256:19962210dc8ab5f0769d82763da5b1b5cce8c392eb310f2ff56ba6ffb8975326"
   },
   "userStories": [
     {
       "us": "US1",
       "id": "86bbbjxez",
-      "hash": "sha256:453350a8bc9271209761438e5bd30da8df576db6865ee49273da50b3b17ce8e7",
+      "hash": "sha256:2916607e87fe91708316a39bb6f689e94ec7af8de12b95d6659e6deea155af02",
       "dependsOn": []
     },
     {
       "us": "US2",
       "id": "86bbbjxh6",
-      "hash": "sha256:6a300101fe90a6609b8b6df9f94b20961dbe8f703818994f17ad415f05485661",
+      "hash": "sha256:8d45da54c9ab55802deaf6b0ca6698dc80ce6b38947c24ad32ef62f7c2470dc6",
       "dependsOn": [
         "US1"
       ]
@@ -35,7 +35,7 @@
     {
       "us": "US3",
       "id": "86bbbjxrw",
-      "hash": "sha256:be7d36a945b0c16d7853e6618f38a4571a260bb5daf23df801c6a32588428880",
+      "hash": "sha256:bfe8201b8581a9c5b8924d451b28bdd2c63d31f62f042eecc09b2a2b4f33db8a",
       "dependsOn": [
         "US1",
         "US2"
