@@ -27,10 +27,36 @@ export interface GameAdapter {
   stop(): Promise<void>;
 }
 
+/**
+ * What a media target reported when it was asked (007).
+ *
+ * Every field but `state` is optional and independently so: absent means *the player did
+ * not report it*, never zero and never a guess (FR-009). Nothing here is stored — it is
+ * read, used once, and discarded (FR-011, DECISIONS 024).
+ */
+export interface MediaObservation {
+  readonly state: MediaState;
+  /** The item's title where it has one, its filename where it does not, else absent. */
+  readonly title?: string;
+  /** How far in, in whole seconds. */
+  readonly elapsedSeconds?: number;
+  /** How long, in whole seconds. Absent when the player reports no total. */
+  readonly totalSeconds?: number;
+}
+
 export interface MediaAdapter {
   readonly kind: 'media';
   /** What the player is doing right now — never remembered (FR-012). */
   getState(): Promise<MediaState>;
+  /**
+   * State AND whatever the player says about what is loaded, from ONE read (007).
+   *
+   * This is the whole of Thread C's cost: the response that derives `state` already
+   * carries the rest, so surfacing it needs no second request and no new verb. Callers
+   * that need both MUST use this rather than calling `getState` and then reading again —
+   * two reads could straddle a change and report a title that never went with that state.
+   */
+  observe(): Promise<MediaObservation>;
   /** Force-pause the current item. A no-op if already paused. */
   pause(): Promise<void>;
   /** Force-resume from where it paused. A no-op if already playing. */
@@ -43,13 +69,18 @@ export interface MediaAdapter {
    */
   seek(seconds: number): Promise<void>;
   /**
-   * Step blindly to the next playlist item (005). Carries no id, index, or count, and
+   * Step blindly `count` items forward (005; count added 007). Carries no id or index and
    * MUST NOT inspect the playlist or check whether a next item exists — a blind step is
-   * what makes it permitted at all (DECISIONS 022).
+   * what makes it permitted at all (DECISIONS 022). A step of three is the same blind step
+   * three times: it still nominates nothing.
+   *
+   * `count` is a **magnitude**, always >= 1 — the direction lives in *which method is
+   * called*, decided by the orchestrator from the sign (007 FR-005, FR-017). It is
+   * deliberately **unbounded** (FR-016): never clamped, capped, or range-checked.
    */
-  next(): Promise<void>;
-  /** Step blindly to the previous item. Mirror of {@link MediaAdapter.next}. */
-  previous(): Promise<void>;
+  next(count: number): Promise<void>;
+  /** Step blindly `count` items back. Mirror of {@link MediaAdapter.next}. */
+  previous(count: number): Promise<void>;
 }
 
 /** Either kind of adapter. The `kind` tag is how the server picks the verb set. */

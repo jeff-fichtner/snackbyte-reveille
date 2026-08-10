@@ -10,6 +10,7 @@
  * already says, and no branch relies on it to be understood.
  */
 import { EmbedBuilder, SlashCommandBuilder, type ChatInputCommandInteraction } from 'discord.js';
+import type { AgentResponse } from '@reveille/contract';
 import type { AgentClient, AgentResult } from './agent-client.ts';
 import type { ControlledServer } from './config.ts';
 
@@ -22,6 +23,15 @@ import type { ControlledServer } from './config.ts';
  * omitting the parameter would be a bug (DECISIONS 023).
  */
 export const DEFAULT_SEEK_SECONDS = 30;
+
+/**
+ * How many items `/next` and `/previous` move when the member gives no count (007 FR-015).
+ *
+ * **The only place this default exists**, exactly like {@link DEFAULT_SEEK_SECONDS}: the
+ * agent has none and answers 400 on a missing `count`, because a member omitting an
+ * argument is a documented choice while the orchestrator omitting it would be a bug.
+ */
+export const DEFAULT_STEP_COUNT = 1;
 
 /**
  * Build ONE tenant's slash-command set from ITS targets (004 — scoped per guild). A
@@ -90,9 +100,26 @@ export function buildCommandGroups(servers: readonly ControlledServer[]): Comman
       new SlashCommandBuilder().setName('play').setDescription('Resume the show.'),
       // Blind stepping (005). Bare and argument-free — a step needs to know nothing, and
       // the description must not imply Reveille can see what is queued (FR-002).
-      new SlashCommandBuilder().setName('next').setDescription('Skip to the next thing.'),
-      new SlashCommandBuilder().setName('previous').setDescription('Go back to the previous thing.'),
     ];
+
+    // The two stepping commands, each with ONE optional count — the same shape the seek
+    // pair already has (007 FR-015). NO `setMinValue`/`setMaxValue`: FR-016 forbids
+    // bounding the count, and reaching for them is the obvious instinct, which is why
+    // `commands.test.ts` asserts their absence for these too. A negative is meaningful
+    // (it reverses direction, FR-017), so a minimum would break the feature outright.
+    for (const [name, blurb] of [
+      ['next', 'Skip to the next thing.'],
+      ['previous', 'Go back to the previous thing.'],
+    ] as const) {
+      const cmd = new SlashCommandBuilder().setName(name).setDescription(blurb);
+      cmd.addIntegerOption((o) =>
+        o
+          .setName('count')
+          .setDescription(`How many to move (default ${DEFAULT_STEP_COUNT}; negative goes the other way).`)
+          .setRequired(false),
+      );
+      mediaCmds.push(cmd);
+    }
 
     // The two seek commands, bare like pause/play, each with ONE optional amount so the
     // common case is argument-free (FR-001). Built in two steps rather than chained:
@@ -127,7 +154,7 @@ export function buildCommandGroups(servers: readonly ControlledServer[]): Comman
   groups.push({
     label: 'Everything',
     commands: [
-      new SlashCommandBuilder().setName('status').setDescription('Show the state of every target.'),
+      new SlashCommandBuilder().setName('status').setDescription('See what’s running right now.'),
       // `/help` takes no arguments (006 FR-001) — asking what you can do must not itself
       // require knowing something. This description is what the listing shows, verbatim:
       // there is no second copy of it anywhere.
@@ -236,14 +263,89 @@ export interface Reply {
   readonly text: string;
   /** Small print. Renders as the embed footer — a caveat, never the substance. */
   readonly footnote?: string;
+  /**
+   * Technical detail for the OPERATOR. **Never rendered** — `toEmbed` reads only `text`
+   * and `footnote`, so this cannot reach a member by construction rather than by care
+   * (007 FR-005, FR-006). It is where a status code, an errno, or a target's own error
+   * text goes now that none of those may appear in a reply.
+   */
+  readonly diagnostic?: string;
+}
+
+/**
+ * The operator's version of a failure the member is told about in their own terms.
+ *
+ * Both halves of the old `body.message ?? ` + "Agent returned HTTP " + `status` were the
+ * bug: the target's text leaked its internals into the channel, and the fallback leaked
+ * ours. Neither is a reply any more — together they are this string, and it is logged.
+ */
+function agentDiagnostic(status: number, body: AgentResponse): string {
+  return body.message !== undefined
+    ? `agent HTTP ${status}: ${body.message}`
+    : `agent HTTP ${status}`;
+}
+
+/**
+ * The longest name shown before it is shortened (007 FR-009a).
+ *
+ * The filename fallback is where long names come from: a release filename routinely runs
+ * past a phone's line width on its own, and the all-targets reply puts it inline
+ * (FR-008a). 60 is a judgement, not a measurement — the requirement is only that a long
+ * name must not break the layout, and that a shortened one must LOOK shortened.
+ */
+const MAX_NAME = 60;
+
+/** `m:ss`, widening to `h:mm:ss` only once an item actually runs past an hour. */
+function clock(totalSeconds: number): string {
+  const s = Math.floor(totalSeconds % 60);
+  const m = Math.floor(totalSeconds / 60) % 60;
+  const h = Math.floor(totalSeconds / 3600);
+  const mm = h > 0 ? String(m).padStart(2, '0') : String(m);
+  return `${h > 0 ? `${h}:` : ''}${mm}:${String(s).padStart(2, '0')}`;
+}
+
+/**
+ * What a target observed, as a member reads it — ` · Name · 12:04 / 44:31`.
+ *
+ * **Omission is the rule, never substitution** (FR-009, SC-005): a part the target did not
+ * report simply is not there. No placeholder, no "Unknown", no zero standing in for a
+ * duration nobody knows. Absent detail therefore renders as the empty string, which is
+ * exactly what a game target and a pre-007 agent both produce — so those read identically
+ * to before this feature (SC-016).
+ *
+ * The elapsed-only case is deliberate: a live stream reports how far in it is but has no
+ * total, and "12:04" alone is honest where "12:04 / 0:00" would be invented.
+ */
+export function renderDetail(body: AgentResponse): string {
+  const parts: string[] = [];
+
+  if (body.title !== undefined && body.title.trim() !== '') {
+    const name = body.title.trim();
+    // Truncation must be VISIBLE (FR-009a): a silently clipped name reads as the whole of
+    // a strange one, which is a quieter version of inventing detail.
+    parts.push(name.length > MAX_NAME ? `${name.slice(0, MAX_NAME - 1)}…` : name);
+  }
+
+  const { elapsedSeconds, totalSeconds } = body;
+  if (elapsedSeconds !== undefined) {
+    // A total with no elapsed says nothing useful ("of 44:31"), so it is not rendered
+    // alone — position is anchored on the elapsed reading or omitted entirely.
+    parts.push(totalSeconds !== undefined ? `${clock(elapsedSeconds)} / ${clock(totalSeconds)}` : clock(elapsedSeconds));
+  }
+
+  return parts.length > 0 ? ` · ${parts.join(' · ')}` : '';
 }
 
 /** The host is unreachable, which is NOT the command failing on the host (FR-009). */
 function unreachable(reason: string): Reply {
   return {
     tone: 'failed',
-    text: 'Could not reach the host. It may be off, asleep, or not running the agent.',
-    footnote: reason,
+    // One outcome, and something the reader can actually do. The old wording listed
+    // three causes ("off, asleep, or not running the agent") that a member can neither
+    // tell apart nor act on — FR-004 — and forwarded the raw transport reason, which is
+    // an errno, not a sentence (FR-001).
+    text: 'That machine isn’t responding right now. Try again in a minute, or ask whoever runs it to check on it.',
+    diagnostic: `unreachable: ${reason}`,
   };
 }
 
@@ -269,8 +371,10 @@ export function describeStart(result: AgentResult): Reply {
     // "it's up" or "could not confirm", so this message never has to guess.
     return {
       tone: 'progress',
-      text: 'Starting the server — launch issued. I’ll post again when it’s up.',
-      footnote: 'That means launched, not verified. If it does not come up, the follow-up will say it could not be confirmed.',
+      // Still makes no claim that the server is up (FR-007) — but says so as an outcome
+      // the reader can act on ("wait, I'll tell you") rather than by explaining that a
+      // launch is not a verification.
+      text: 'Starting it up. I’ll post again when it’s ready to join — give it a minute.',
     };
   }
   if (status === 409 && body.state === 'running') {
@@ -284,8 +388,8 @@ export function describeStart(result: AgentResult): Reply {
   }
   return {
     tone: 'failed',
-    text: 'Could not start the server.',
-    footnote: body.message ?? `Agent returned HTTP ${status}.`,
+    text: 'Couldn’t start it. Try again, and if it keeps failing ask whoever runs it to look.',
+    diagnostic: agentDiagnostic(status, body),
   };
 }
 
@@ -315,7 +419,7 @@ export function describeStop(result: AgentResult): Reply {
   return {
     tone: 'failed',
     text: 'Could not stop safely, so the server is still running.',
-    footnote: body.message ?? `Agent returned HTTP ${status}.`,
+    diagnostic: agentDiagnostic(status, body),
   };
 }
 
@@ -372,7 +476,10 @@ export function describeStatus(statuses: readonly ServerStatus[]): Reply {
     // errors — its getState derives a state and never throws — so games are unchanged
     // (FR-013): this branch only ever fires for a media target with its player closed.
     if (!result.reached || result.status !== 200) return `${label} — unreachable`;
-    return `${label} — ${STATE_WORD[result.body.state] ?? result.body.state}`;
+    // ONE LINE PER TARGET, detail inline (FR-008a). A game target reports none of the
+    // observation fields, so `renderDetail` returns '' and its line is byte-identical to
+    // what it produced before this feature — which is SC-016, held structurally.
+    return `${label} — ${STATE_WORD[result.body.state] ?? result.body.state}${renderDetail(result.body)}`;
   });
   return { tone: 'ok', text: lines.join('\n') };
 }
@@ -388,6 +495,49 @@ export function toEmbed(reply: Reply, serverName?: string): EmbedBuilder {
   if (reply.footnote !== undefined) embed.setFooter({ text: reply.footnote });
   return embed;
 }
+
+/**
+ * Send a reply, and record its operator half.
+ *
+ * Every member-visible reply leaves through here, which is what makes 007 SC-003
+ * structural rather than a habit: a branch cannot answer a member and forget to log,
+ * because answering *is* logging. `toEmbed` stays pure — the wording of every branch is
+ * still testable without Discord — and this is the only impure step.
+ */
+export async function sendReply(
+  interaction: ChatInputCommandInteraction,
+  reply: Reply,
+  serverName?: string,
+): Promise<void> {
+  logDiagnostic(interaction.commandName, reply);
+  await interaction.editReply({ embeds: [toEmbed(reply, serverName)] });
+}
+
+/**
+ * Record a reply's operator half (007 T041).
+ *
+ * Extracted so the guarantee is actually true. `sendReply` claimed every member-visible
+ * reply left through it — and the start follow-up posts with `followUp`, not `editReply`,
+ * so it never did. The two send paths cannot share one function, but they can share this,
+ * which is the part the guarantee was ever about.
+ */
+export function logDiagnostic(commandName: string, reply: Reply): void {
+  if (reply.diagnostic !== undefined) {
+    process.stderr.write(`/${commandName}: ${reply.diagnostic}\n`);
+  }
+}
+
+/**
+ * What a member is told when their guild has no media target (007 T042).
+ *
+ * Lives here, beside every other member-visible string, so the internals scan sees it — it
+ * used to be a bare literal in the dispatch and was therefore outside the scanned set.
+ * Worded as an outcome with something to do: the old text stated our configuration model
+ * ("is configured"), offered no next step, and said "server" where it meant the Discord
+ * guild — colliding with *game* server, the one noun this system most needs unambiguous.
+ */
+export const NO_MEDIA_TARGET =
+  'There’s no media player set up here, so there’s nothing for this to control. Ask whoever runs this if you think there should be.';
 
 /** A name that is not a configured server. Refused, with the valid list (FR-020). */
 export function unknownServer(name: string, valid: readonly string[]): Reply {
@@ -421,17 +571,17 @@ export function describeAddress(result: { ip: string } | { error: string }, port
   if ('error' in result) {
     return {
       tone: 'failed',
-      text: 'Could not work out the current address.',
-      footnote: result.error,
+      text: 'Couldn’t work out the address right now. Try again in a moment.',
+      diagnostic: `address lookup: ${result.error}`,
     };
   }
   return {
     tone: 'ok',
     text: `Connect to \`${result.ip}:${port}\``,
-    // Honest about what this is and is not: it is where the host is right now, and
-    // it only works if the port is forwarded there and no VPN is masking the IP.
-    footnote:
-      'This is the host’s current public address. It changes when the machine moves, and only works with the game port forwarded and no VPN active.',
+    // What the reader does with it, not the plumbing that makes it work. Port
+    // forwarding and VPNs are the operator's concern; a member can only copy the
+    // address and try (FR-003, FR-004).
+    footnote: 'Paste this into the game to join. It can change, so check here again if it stops working.',
   };
 }
 
@@ -468,12 +618,16 @@ export async function lookupPublicIp(): Promise<{ ip: string } | { error: string
 export function describePause(result: AgentResult): Reply {
   if (!result.reached) return unreachable(result.reason);
   const { status, body } = result;
-  if (status === 200) return { tone: 'ok', text: body.message ?? 'Paused.' };
+  // The agent's no-op note used to author this line. The orchestrator says it now; the
+  // already-in-state case reads the same either way, and nothing of the target's leaks.
+  // Observed at the moment it was asked, and reported as such — the wording never claims
+  // the command produced it (FR-010).
+  if (status === 200) return { tone: 'ok', text: `Paused.${renderDetail(body)}` };
   if (status === 409) return { tone: 'refused', text: 'Nothing is playing — nothing to pause.' };
   return {
     tone: 'failed',
-    text: 'Could not pause the player.',
-    footnote: body.message ?? `Agent returned HTTP ${status}.`,
+    text: 'Couldn’t pause it. Try again in a moment.',
+    diagnostic: agentDiagnostic(status, body),
   };
 }
 
@@ -481,12 +635,12 @@ export function describePause(result: AgentResult): Reply {
 export function describeResume(result: AgentResult): Reply {
   if (!result.reached) return unreachable(result.reason);
   const { status, body } = result;
-  if (status === 200) return { tone: 'ok', text: body.message ?? 'Playing.' };
+  if (status === 200) return { tone: 'ok', text: `Playing.${renderDetail(body)}` };
   if (status === 409) return { tone: 'refused', text: 'Nothing is loaded — nothing to resume.' };
   return {
     tone: 'failed',
-    text: 'Could not resume the player.',
-    footnote: body.message ?? `Agent returned HTTP ${status}.`,
+    text: 'Couldn’t start it playing again. Try again in a moment.',
+    diagnostic: agentDiagnostic(status, body),
   };
 }
 
@@ -509,15 +663,15 @@ export function describeSeek(result: AgentResult, seconds: number): Reply {
   const magnitude = Math.abs(seconds);
 
   if (status === 200) {
-    return { tone: 'ok', text: `Jumping ${direction} ${magnitude}s.` };
+    return { tone: 'ok', text: `Jumping ${direction} ${magnitude}s.${renderDetail(body)}` };
   }
   // Same tier and same terms as pause's refusal — all six media commands read alike
   // when nothing is loaded (SC-003).
   if (status === 409) return { tone: 'refused', text: 'Nothing is playing — nothing to jump.' };
   return {
     tone: 'failed',
-    text: 'Could not jump the player.',
-    footnote: body.message ?? `Agent returned HTTP ${status}.`,
+    text: 'Couldn’t jump. Try again in a moment.',
+    diagnostic: agentDiagnostic(status, body),
   };
 }
 
@@ -529,17 +683,29 @@ export function describeSeek(result: AgentResult, seconds: number): Reply {
  * playlist: knowing you were at the end would require reading the playlist, and M0 §8
  * measured VLC wrapping there anyway. "Issued" is the whole truth available.
  */
-export function describeStep(result: AgentResult, step: 'next' | 'previous'): Reply {
+export function describeStep(result: AgentResult, step: 'next' | 'previous', count = 1): Reply {
   if (!result.reached) return unreachable(result.reason);
   const { status, body } = result;
+  // The direction ACTUALLY taken, not the one the command name implies (007 FR-017).
+  // `/next -3` reaches here as a `previous` of 3, and says "back" — the same honesty
+  // `/back -30` already owed the member when it seeked forward.
   const word = step === 'next' ? 'next' : 'previous';
+  const many = Math.abs(count) !== 1;
 
-  if (status === 200) return { tone: 'ok', text: `Skipping to the ${word} thing.` };
+  if (status === 200) {
+    return {
+      tone: 'ok',
+      text:
+        (many
+          ? `Skipping ${Math.abs(count)} ${step === 'next' ? 'ahead' : 'back'}.`
+          : `Skipping to the ${word} thing.`) + renderDetail(body),
+    };
+  }
   if (status === 409) return { tone: 'refused', text: 'Nothing is playing — nothing to skip.' };
   return {
     tone: 'failed',
-    text: `Could not skip to the ${word} thing.`,
-    footnote: body.message ?? `Agent returned HTTP ${status}.`,
+    text: `Couldn’t skip to the ${word} thing. Try again in a moment.`,
+    diagnostic: agentDiagnostic(status, body),
   };
 }
 
@@ -584,7 +750,7 @@ export async function handleStatus(
       async ([name, agent]): Promise<ServerStatus> => ({ name, result: await agent.status() }),
     ),
   );
-  await interaction.editReply({ embeds: [toEmbed(describeStatus(statuses))] });
+  await sendReply(interaction, describeStatus(statuses));
 }
 
 export async function handleStart(
@@ -594,11 +760,11 @@ export async function handleStart(
 ): Promise<AgentResult | undefined> {
   const routed = routeToAgent(serverName, agents);
   if ('reply' in routed) {
-    await interaction.editReply({ embeds: [toEmbed(routed.reply, serverName)] });
+    await sendReply(interaction, routed.reply, serverName);
     return undefined; // an unknown name launched nothing — no follow-up (FR-030)
   }
   const result = await routed.agent.start();
-  await interaction.editReply({ embeds: [toEmbed(describeStart(result), serverName)] });
+  await sendReply(interaction, describeStart(result), serverName);
   // The caller arms a follow-up only on a 202 (an actual launch), never on a
   // refusal or an unreachable host (FR-030).
   return result;
@@ -611,12 +777,10 @@ export async function handleStop(
 ): Promise<void> {
   const routed = routeToAgent(serverName, agents);
   if ('reply' in routed) {
-    await interaction.editReply({ embeds: [toEmbed(routed.reply, serverName)] });
+    await sendReply(interaction, routed.reply, serverName);
     return;
   }
-  await interaction.editReply({
-    embeds: [toEmbed(describeStop(await routed.agent.stop()), serverName)],
-  });
+  await sendReply(interaction, describeStop(await routed.agent.stop()), serverName);
 }
 
 /**
@@ -631,14 +795,10 @@ export async function handleAddress(
 ): Promise<void> {
   const port = ports.get(serverName);
   if (port === undefined) {
-    await interaction.editReply({
-      embeds: [toEmbed(unknownServer(serverName, [...ports.keys()]), serverName)],
-    });
+    await sendReply(interaction, unknownServer(serverName, [...ports.keys()]), serverName);
     return;
   }
-  await interaction.editReply({
-    embeds: [toEmbed(describeAddress(await lookupPublicIp(), port), serverName)],
-  });
+  await sendReply(interaction, describeAddress(await lookupPublicIp(), port), serverName);
 }
 
 /**
@@ -652,12 +812,10 @@ export async function handlePause(
 ): Promise<void> {
   const routed = routeToAgent(serverName, agents);
   if ('reply' in routed) {
-    await interaction.editReply({ embeds: [toEmbed(routed.reply, serverName)] });
+    await sendReply(interaction, routed.reply, serverName);
     return;
   }
-  await interaction.editReply({
-    embeds: [toEmbed(describePause(await routed.agent.pause()), serverName)],
-  });
+  await sendReply(interaction, describePause(await routed.agent.pause()), serverName);
 }
 
 /**
@@ -675,12 +833,10 @@ export async function handleSeek(
 ): Promise<void> {
   const routed = routeToAgent(serverName, agents);
   if ('reply' in routed) {
-    await interaction.editReply({ embeds: [toEmbed(routed.reply, serverName)] });
+    await sendReply(interaction, routed.reply, serverName);
     return;
   }
-  await interaction.editReply({
-    embeds: [toEmbed(describeSeek(await routed.agent.seek(seconds), seconds), serverName)],
-  });
+  await sendReply(interaction, describeSeek(await routed.agent.seek(seconds), seconds), serverName);
 }
 
 /** `/next` and `/previous` — step blindly through this tenant's media playlist (005). */
@@ -689,14 +845,24 @@ export async function handleStep(
   agents: ReadonlyMap<string, AgentClient>,
   serverName: string,
   step: 'next' | 'previous',
+  count: number = DEFAULT_STEP_COUNT,
 ): Promise<void> {
   const routed = routeToAgent(serverName, agents);
   if ('reply' in routed) {
-    await interaction.editReply({ embeds: [toEmbed(routed.reply, serverName)] });
+    await sendReply(interaction, routed.reply, serverName);
     return;
   }
-  const result = await (step === 'next' ? routed.agent.next() : routed.agent.previous());
-  await interaction.editReply({ embeds: [toEmbed(describeStep(result, step), serverName)] });
+  // The sign becomes a choice of VERB, and only a magnitude crosses the seam (FR-005,
+  // contracts/seam-v5.md). A zero has no direction to reverse, so it stays as asked.
+  const reversed = count < 0;
+  const direction: 'next' | 'previous' = reversed
+    ? (step === 'next' ? 'previous' : 'next')
+    : step;
+  const magnitude = Math.abs(count);
+  const result = await (direction === 'next'
+    ? routed.agent.next(magnitude)
+    : routed.agent.previous(magnitude));
+  await sendReply(interaction, describeStep(result, direction, magnitude), serverName);
 }
 
 /** `/play` — resume the one media player (003). */
@@ -707,10 +873,8 @@ export async function handleResume(
 ): Promise<void> {
   const routed = routeToAgent(serverName, agents);
   if ('reply' in routed) {
-    await interaction.editReply({ embeds: [toEmbed(routed.reply, serverName)] });
+    await sendReply(interaction, routed.reply, serverName);
     return;
   }
-  await interaction.editReply({
-    embeds: [toEmbed(describeResume(await routed.agent.play()), serverName)],
-  });
+  await sendReply(interaction, describeResume(await routed.agent.play()), serverName);
 }

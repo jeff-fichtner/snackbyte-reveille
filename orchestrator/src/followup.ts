@@ -10,7 +10,7 @@
  */
 import type { ChatInputCommandInteraction } from 'discord.js';
 import type { AgentClient, AgentResult } from './agent-client.ts';
-import { toEmbed, titleCase, type Reply } from './commands.ts';
+import { logDiagnostic, toEmbed, titleCase, type Reply } from './commands.ts';
 
 /** How often to re-check the server while waiting. An internal cadence, not config. */
 const POLL_INTERVAL_MS = 3_000;
@@ -89,9 +89,12 @@ export function armFollowup(
   void (async () => {
     try {
       const confirmed = await watchUntilUp(() => agent.status(), timeoutMs, clock);
-      await interaction.followUp({
-        embeds: [toEmbed(describeFollowup(serverName, confirmed), serverName)],
-      });
+      const reply = describeFollowup(serverName, confirmed);
+      // Posts with `followUp`, not `editReply`, so it cannot go through `sendReply` — but
+      // it MUST still record its operator half, or SC-003 would hold for every reply
+      // except this one (007 T041).
+      logDiagnostic(interaction.commandName, reply);
+      await interaction.followUp({ embeds: [toEmbed(reply, serverName)] });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       process.stderr.write(`follow-up for ${serverName} could not be posted: ${message}\n`);

@@ -765,7 +765,15 @@ addressing remain a separate, deferred spec (FR-013).
 ---
 
 ## 022 · The media ban narrows: no *knowledge* of content, not no *movement* through it
-**Date:** 2026-08-04 · **Status:** accepted
+**Date:** 2026-08-04 · **Status:** accepted, **clarified by 024**
+
+> **The phrase "no knowledge of content" was imprecise, and 024 corrects it.** What this
+> entry protects is **statelessness and mechanism-not-policy**: nothing is remembered
+> between calls, and the code never *chooses* what plays. It was never a ban on
+> **observation**. Requirement text written around this entry took it literally and
+> forbade reading at all; 007 corrects that text. The bans below — `pl_jump`, `pl_play`,
+> `in_play`, `in_enqueue`, `pl_empty`, `pl_delete`, volume, `pl_stop`, OS kill, absolute
+> seek — are unchanged.
 **Closes:** whether Reveille may step through a playlist or move within an item (005)
 
 **Context.** 003 gave the media target exactly two acting verbs and drew a hard line
@@ -873,3 +881,80 @@ half-minute jump.
 verbs are serialized on the agent's command mutex; `status` stays outside it. A game agent
 404s all three new verbs. v1/v2/v3 behaviour is byte-for-byte unchanged, so a conformance
 check written against any earlier version still passes.
+
+---
+
+## 024 · "No knowledge of content" always meant statelessness, not blindness
+**Date:** 2026-08-09 · **Status:** accepted
+**Clarifies:** 022 · **Closes:** whether a reply may say what is playing (007)
+
+**Context.** 022 narrowed the media ban from *no movement through content* to *no
+knowledge of content*, and the slogan stuck. But the requirement text written around it
+overshot what the principle protects, in two places, and **tests enforce the overshoot**:
+
+- 005 FR-002 forbids the system to "read, inspect, store, name, list, or display" what is
+  loaded. Only **store** belongs to the principle.
+- 005 FR-003 forbids checking "that the intended effect occurred" — which, read literally,
+  also forbids *reporting* what is playing **after** a step, not merely retrying toward a
+  desired state.
+
+Taken together those make an honest reply impossible: `/next` may move the player but may
+not say where it landed, and `/status` may report `playing` but not what is playing —
+while the very response the adapter already fetches to derive `state` carries the title and
+position and we discard them.
+
+**Decision.** The principle is restated, in the two names that actually describe it:
+
+- **Mechanism, not policy.** Reveille supplies the ability to act; the operator supplies
+  every decision about *what* to act on. The code holds no opinion about content.
+- **Level-triggered, not edge-triggered.** Each call observes current reality, acts, and
+  **forgets**. No command tracks a transition, remembers what it saw, or depends on what
+  another command did.
+
+What that protects is **persistence and opinions** — never **observation**. Concretely:
+
+| | Status |
+|---|---|
+| **Storing** anything about content between calls — cache, memo, "last seen" | Forbidden (unchanged) |
+| **Choosing** content — naming, opening, enqueuing, clearing, removing, jumping to an item | Forbidden (unchanged) |
+| One command **depending on** another's leftovers | Forbidden (unchanged) |
+| **Observing** what the player reports, telling the member, and forgetting it | **Permitted** — the clarification |
+
+The line the principle draws is between **observing and reporting** (honest) and
+**asserting causation or retrying toward a desired state** (an opinion). A reply may say
+what the player reports; it may not claim the command *caused* it, and nothing may loop
+until reality matches an intent.
+
+**Why it won.** 022's own organizing test — "does this require knowing what is loaded?" —
+was always about *acquiring the ability to choose*, not about *looking*. `pl_jump` needs
+the playlist in order to nominate an item; reading the title of whatever happens to be
+loaded nominates nothing and enables nothing. The overshoot came from writing the ban as
+a list of verbs ("read, inspect, … display") rather than as the property being protected,
+and a verb list cannot distinguish the two cases. Naming the property instead makes the
+distinction mechanical again: **does anything survive the call, and does the code express
+a preference?** Both answers stay "no".
+
+Chosen over leaving the text as written and shipping a system its own specs forbid — which
+is what the tests would have proved on the first green run. Also chosen over the narrower
+"report position but never the title": position is the half that discloses nothing, so
+permitting only that would have dodged the real question (disclosure) while leaving the
+principle still misstated.
+
+**Consequences.** 005 FR-002 and FR-003, and 006 FR-013/SC-006 which inherited them, are
+corrected where they live; `agent/src/vlc.ts`'s header and this repository's `CLAUDE.md`
+are corrected with them. The enforcement tests are **redrawn rather than relaxed** — the
+selection ban stays a source-level check (`pl_jump`, `pl_play`, `in_play`, `in_enqueue`,
+`pl_empty`, `pl_delete`, volume, `pl_stop`, OS kill, unsigned absolute seek), and a **new**
+behavioural check asserts the statelessness half, which no source scan can prove: driven
+against a stub whose reported detail changes between calls, every reply must reflect the
+**current** observation. The check gains a dimension it never had.
+
+**A disclosure consequence is accepted deliberately**, not discovered later: titles — and,
+for an untagged library, filenames — now appear in a shared Discord channel. The narrower
+option (title or nothing) was offered and declined, so the feature works on a real library
+rather than only a well-tagged one. It is the part awkward to reverse once seen.
+
+The seam grows additively (contract v5): three **optional response** fields a game agent
+never sets, and an older agent that omits them still works. No target identifier is
+involved (Constitution I). The public homepage's claim that "Reveille never sees *what* is
+loaded" becomes false and is corrected as a planned task.

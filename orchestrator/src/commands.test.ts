@@ -19,7 +19,10 @@ import {
   toCommandEntries,
   describeCommandList,
   DEFAULT_SEEK_SECONDS,
+  DEFAULT_STEP_COUNT,
+  NO_MEDIA_TARGET,
 } from './commands.ts';
+import { describeFollowup } from './followup.ts';
 import type { ControlledServer } from './config.ts';
 import { AgentClient, type AgentResult } from './agent-client.ts';
 import type { AgentResponse } from '@reveille/contract';
@@ -30,15 +33,36 @@ const reached = (status: number, body: AgentResponse): AgentResult => ({
   body,
 });
 
+/**
+ * What the OPERATOR gets. Deliberately separate from `said`: 007 FR-005/FR-006 split one
+ * string into two destinations, and a test that read them together could not tell the two
+ * apart — which is how the leak survived this long.
+ */
+const logged = (r: { diagnostic?: string }) => r.diagnostic ?? '';
+
 /** Everything a player actually reads, text and small print together. */
 const said = (r: { text: string; footnote?: string }) => `${r.text}\n${r.footnote ?? ''}`;
+
+/**
+ * The unreachable branch, asserted as a PROPERTY rather than a phrase.
+ *
+ * Four tests used to pin the literal "could not reach the host", so rewording the reply
+ * broke four of them and told us nothing useful. What actually matters is that it reads as
+ * a failure, names no playback state it never observed, and leaks no internals.
+ */
+const readsAsUnreachable = (r: { tone: string; text: string; footnote?: string }) => {
+  assert.equal(r.tone, 'failed');
+  assert.doesNotMatch(said(r), /\b(playing|paused|stopped|running)\b/i, 'reports a state it never got');
+  assert.doesNotMatch(said(r), /ECONNREFUSED|ETIMEDOUT|HTTP \d|\bagent\b/i, 'leaks an internal (FR-001, FR-002)');
+  assert.ok(r.text.trim().length > 0);
+};
 
 test('202 and 409 both carry state `starting` and MUST read differently', () => {
   const launched = describeStart(reached(202, { state: 'starting' }));
   const refused = describeStart(reached(409, { state: 'starting' }));
 
   assert.notEqual(launched.text, refused.text, 'action-taken and already-in-that-state read identically');
-  assert.match(launched.text, /Starting the server/);
+  assert.match(launched.text, /starting it up/i);
   assert.match(refused.text, /already in progress/i);
   assert.match(refused.text, /nothing was launched/i);
   assert.notEqual(launched.tone, refused.tone, 'the two must not look the same at a glance either');
@@ -49,7 +73,9 @@ test('a start never claims the server is up (FR-004)', () => {
   // The words carry the honesty, and they are what this guards. `ok` says the
   // COMMAND succeeded — the launch was issued without error — not that the server
   // is up, which is precisely what the text and footnote go on to disclaim.
-  assert.match(said(r), /launched, not verified/i);
+  // The disclaimer used to say "launched, not verified" — mechanism. The guarantee is
+  // what survives: promise a later answer, never claim the server is up.
+  assert.match(said(r), /post again/i, 'must promise the follow-up rather than explain itself');
   assert.doesNotMatch(said(r), /\bis (now )?(up|running|online|ready)\b/i);
 });
 
@@ -90,16 +116,19 @@ test('unreachable host reads differently from a host-side failure (FR-009)', () 
   const unreachable = describeStart({ reached: false, reason: 'ECONNREFUSED' });
   const failed = describeStart(reached(500, { state: 'error', message: 'exe missing' }));
 
-  assert.match(unreachable.text, /could not reach the host/i);
-  assert.doesNotMatch(failed.text, /could not reach the host/i);
-  assert.match(said(failed), /exe missing/);
+  readsAsUnreachable(unreachable);
+  assert.notEqual(failed.text, unreachable.text, 'a host-side failure must not read as unreachable');
+  // The agent's own words are the OPERATOR's, not the member's (FR-005).
+  assert.doesNotMatch(said(failed), /exe missing/, "the target's text reached the channel");
+  assert.match(logged(failed), /exe missing/, 'the detail must still reach the operator (SC-003)');
 });
 
 test('a failed stop says the server is STILL RUNNING in the text, not the small print (FR-006)', () => {
   const r = describeStop(reached(500, { state: 'error', message: 'save timed out' }));
   // Must be the headline, because a footnote is caveat-sized and this is not a caveat.
   assert.match(r.text, /still running/i);
-  assert.match(said(r), /save timed out/);
+  assert.doesNotMatch(said(r), /save timed out/, "the target's text reached the channel (FR-005)");
+  assert.match(logged(r), /save timed out/, 'the detail must still reach the operator (SC-003)');
 });
 
 test('a successful stop states the world was saved (SC-002)', () => {
@@ -157,7 +186,8 @@ test('/address fails honestly when the IP cannot be determined', () => {
   const r = describeAddress({ error: 'No IP-lookup service responded.' }, 8211);
   assert.equal(r.tone, 'failed');
   assert.doesNotMatch(r.text, /\d+\.\d+\.\d+\.\d+/, 'must not invent an address');
-  assert.match(r.footnote ?? '', /responded/);
+  assert.doesNotMatch(said(r), /responded/, 'the lookup detail is the operator’s, not the member’s');
+  assert.match(logged(r), /responded/, 'and it must still reach them (SC-003)');
 });
 
 test('/status reports every server with its own state, independently (SC-005)', () => {
@@ -263,9 +293,11 @@ test('a pause that acted reads as done; a no-op reads as a no-op, not a failure 
 
   // The agent reports an already-paused as a 200 with a message — it is a reported
   // no-op, NOT a failure. It must read as ok, and carry the agent's own words.
+  // The agent still reports the no-op, but the ORCHESTRATOR authors the sentence (FR-005).
+  // It reads the same either way, which is the point: a no-op is not a failure.
   const noop = describePause(reached(200, { state: 'paused', message: 'Already paused.' }));
   assert.equal(noop.tone, 'ok', 'a no-op must not read as a failure');
-  assert.match(noop.text, /already paused/i);
+  assert.equal(noop.text, acted.text, "the agent's wording must not change what the member reads");
 });
 
 test('a pause with nothing playing is refused honestly, never faked (FR-008)', () => {
@@ -281,7 +313,7 @@ test('resume mirrors pause: acted, no-op, and nothing-loaded each read correctly
 
   const noop = describeResume(reached(200, { state: 'playing', message: 'Already playing.' }));
   assert.equal(noop.tone, 'ok');
-  assert.match(noop.text, /already playing/i);
+  assert.equal(noop.text, describeResume(reached(200, { state: 'playing' })).text);
 
   const refused = describeResume(reached(409, { state: 'stopped' }));
   assert.equal(refused.tone, 'refused');
@@ -294,7 +326,7 @@ test('an unreachable media host reads as unreachable, not a playback state (FR-0
     describeResume({ reached: false, reason: 'ECONNREFUSED' }),
   ]) {
     assert.equal(r.tone, 'failed');
-    assert.match(r.text, /could not reach the host/i);
+    readsAsUnreachable(r);
     assert.doesNotMatch(r.text, /\b(playing|paused|stopped)\b/i, 'must not report a state it never got');
   }
 });
@@ -335,10 +367,13 @@ test('the reply names the server it acted on, in the embed title (FR-018)', () =
 });
 
 test('the embed carries the text, and the footnote only when there is one', () => {
-  const withNote = toEmbed(describeStart(reached(202, { state: 'starting' }))).toJSON();
-  assert.match(withNote.description ?? '', /Starting the server/);
-  assert.match(withNote.footer?.text ?? '', /not verified/i);
-  assert.equal(withNote.color, 0xe8a13a); // progress/amber — a start pends (US3)
+  // `/address` carries the surviving footnote; `/start` no longer has one (007 T008).
+  const withNote = toEmbed(describeAddress({ ip: '203.0.113.7' }, 8211)).toJSON();
+  assert.match(withNote.description ?? '', /203\.0\.113\.7/);
+  assert.match(withNote.footer?.text ?? '', /\S/, 'the footnote is missing from the embed');
+
+  const progress = toEmbed(describeStart(reached(202, { state: 'starting' }))).toJSON();
+  assert.equal(progress.color, 0xe8a13a); // progress/amber — a start pends (US3)
 
   const without = toEmbed(describeStart(reached(409, { state: 'running' }))).toJSON();
   assert.equal(without.footer, undefined, 'a footer appeared with no footnote to put in it');
@@ -462,9 +497,8 @@ test('a seek refusal reads in the SAME terms as pause’s (SC-003)', () => {
 
 test('an unreachable player reads as unreachable, never as a playback state (FR-009)', () => {
   const reply = describeSeek({ reached: false, reason: 'ECONNREFUSED' }, 30);
-  assert.equal(reply.tone, 'failed');
-  assert.match(reply.text, /could not reach the host/i);
-  assert.doesNotMatch(reply.text, /playing|paused|stopped|jump/i);
+  readsAsUnreachable(reply);
+  assert.doesNotMatch(reply.text, /jump/i);
 });
 
 test('every seek branch produces a non-empty reply, and none names content (SC-002, SC-004)', () => {
@@ -478,9 +512,22 @@ test('every seek branch produces a non-empty reply, and none names content (SC-0
   ];
   for (const r of branches) {
     assert.ok(r.text.trim().length > 0, 'no command may leave a player guessing');
-    // No item, file, playlist, index, title, or duration may appear anywhere (FR-002).
-    assert.doesNotMatch(said(r), /\b(playlist|episode|file|track|title|item \d|chapter|duration)\b/i);
+    // 007 CORRECTS this assertion (DECISIONS 024). It used to ban "title" and "duration"
+    // from a reply outright — the overshoot — and passed only because these branches
+    // happen to carry no detail; it would have failed the moment a real reading arrived.
+    // What the principle actually forbids is naming a NOMINATED item or offering a way to
+    // choose one. Reporting what the player says is loaded is now permitted and required.
+    assert.doesNotMatch(said(r), /\b(playlist|choose|select|queue|browse|item \d)\b/i, 'a reply offered content SELECTION');
   }
+
+  // A reply MAY carry what the player reported — the correction, asserted positively so
+  // nobody "restores" the old ban (SC-015).
+  const withDetail = describeSeek(
+    reached(200, { state: 'playing', title: 'Some Show', elapsedSeconds: 61, totalSeconds: 125 }),
+    30,
+  );
+  assert.match(withDetail.text, /Some Show/, 'observing and reporting is permitted since DECISIONS 024');
+  assert.match(withDetail.text, /1:01 \/ 2:05/);
 
   // Command DESCRIPTIONS are user-facing text too, and are the easy thing to forget.
   const cmds = buildCommands([{ name: 'vlc', baseUrl: 'http://x', kind: 'media' }]) as unknown as Cmd[];
@@ -492,12 +539,22 @@ test('every seek branch produces a non-empty reply, and none names content (SC-0
   }
 });
 
-test('/next and /previous are bare and carry NO options at all (FR-001)', () => {
+test('/next and /previous take ONE optional, UNBOUNDED count (007 FR-015, FR-016)', () => {
+  // 005 asserted these were bare. 007 gives them a count — but the property that mattered
+  // survives, sharpened: the option must be OPTIONAL (the common case stays argument-free)
+  // and must carry NO bounds. A `min_value` would be fatal rather than merely wrong here,
+  // because a NEGATIVE count is meaningful — it reverses direction (FR-017).
   const cmds = buildCommands([{ name: 'vlc', baseUrl: 'http://x', kind: 'media' }]) as unknown as Cmd[];
   for (const name of ['next', 'previous']) {
     const cmd = cmds.find((c) => c.name === name);
     assert.ok(cmd, `/${name} must be registered for a media tenant`);
-    assert.deepEqual(cmd.options ?? [], [], `/${name} is a blind step — it takes no argument`);
+    const options = cmd.options ?? [];
+    assert.equal(options.length, 1, `/${name} takes exactly one option`);
+    const opt = (options as unknown as Record<string, unknown>[])[0] ?? {};
+    assert.equal(opt.name, 'count');
+    assert.notEqual(opt.required, true, 'the common case must stay argument-free');
+    assert.equal(opt.min_value, undefined, 'a minimum would forbid the negative that reverses direction');
+    assert.equal(opt.max_value, undefined, 'the count is unbounded (FR-016)');
   }
 });
 
@@ -541,7 +598,7 @@ test('a step refusal matches pause’s terms, and every branch replies non-empty
 
   // Unreachable reads as unreachable, never as a playback state (FR-009).
   const unreached = describeStep({ reached: false, reason: 'ECONNREFUSED' }, 'next');
-  assert.match(unreached.text, /could not reach the host/i);
+  readsAsUnreachable(unreached);
 });
 
 test('nothing self-issues — no media path schedules a command (FR-008)', () => {
@@ -599,8 +656,8 @@ test('the registered surface is exactly this — commands, order, and options', 
     'address(palworld)',
     'pause()',
     'play()',
-    'next()',
-    'previous()',
+    'next(count)',
+    'previous(count)',
     'forward(seconds)',
     'back(seconds)',
     'status()',
@@ -611,7 +668,7 @@ test('the registered surface is exactly this — commands, order, and options', 
     { name: 'vlc', baseUrl: 'http://x', kind: 'media' },
   ]) as unknown as Cmd[]).map(shapeOf);
   assert.deepEqual(mediaOnly, [
-    'pause()', 'play()', 'next()', 'previous()', 'forward(seconds)', 'back(seconds)', 'status()', 'help()',
+    'pause()', 'play()', 'next(count)', 'previous(count)', 'forward(seconds)', 'back(seconds)', 'status()', 'help()',
   ]);
 
   const gameOnly = (buildCommands([
@@ -916,4 +973,346 @@ test('isolation: another tenant’s target is UNKNOWN to this tenant, never rout
   assert.equal(routed.reply.tone, 'refused');
   assert.match(routed.reply.text, /palworld/, 'the refusal offers only this tenant’s targets');
   assert.doesNotMatch(routed.reply.text, /8301/, 'must not reveal the other tenant’s agent');
+});
+
+/**
+ * 007 US1 — the three checks that make "the orchestrator authors every word" enforceable
+ * rather than aspirational.
+ *
+ * All three are DERIVED: they enumerate every reply the code can produce and assert a
+ * property of the whole set. None contains a fixture of expected wording, so rewording a
+ * reply cannot break them and — more importantly — cannot sneak past them either.
+ */
+
+/** Every failure/refusal shape an agent can hand back, including a target that talks. */
+const EVERY_AGENT_RESULT: AgentResult[] = [
+  { reached: false, reason: 'ECONNREFUSED 127.0.0.1:8300' },
+  { reached: false, reason: 'ETIMEDOUT' },
+  reached(202, { state: 'starting' }),
+  reached(200, { state: 'stopped' }),
+  reached(200, { state: 'paused', message: 'Already paused.' }),
+  reached(200, { state: 'playing', message: 'Already playing.' }),
+  reached(409, { state: 'running' }),
+  reached(409, { state: 'starting' }),
+  reached(409, { state: 'stopped' }),
+  reached(400, { state: 'error', message: 'seconds must be an integer' }),
+  reached(404, { state: 'error' }),
+  reached(500, { state: 'error', message: 'VLC web interface returned HTTP 401' }),
+  reached(500, { state: 'error', message: 'spawn ENOENT C:\\steamcmd\\PalServer.exe' }),
+  reached(418, { state: 'error', message: 'agent said something unexpected' }),
+];
+
+/** Every member-visible reply this code can produce, derived rather than listed. */
+const everyReply = () => [
+  ...EVERY_AGENT_RESULT.flatMap((c) => [
+    describeStart(c),
+    describeStop(c),
+    describePause(c),
+    describeResume(c),
+    describeSeek(c, 30),
+    describeSeek(c, -30),
+    describeStep(c, 'next'),
+    describeStep(c, 'previous'),
+  ]),
+  describeAddress({ ip: '203.0.113.7' }, 8211),
+  describeAddress({ error: 'No IP-lookup service responded.' }, 8211),
+];
+
+test('007 T010 — no internal reaches a member, in ANY reply (FR-001, FR-002, SC-001)', () => {
+  // The bans, as patterns rather than as a list of strings we happen to know about.
+  const FORBIDDEN: [RegExp, string][] = [
+    [/HTTP\s*\d{3}/i, 'an HTTP status code'],
+    [/\b[45]\d{2}\b/, 'a bare status code'],
+    [/\bE[A-Z]{4,}\b/, 'an errno'],
+    [/\bagent\b/i, 'the agent — an internal component'],
+    [/\bVLC\b/, 'the player product name'],
+    [/\bseam\b|\bendpoint\b|\bpayload\b/i, 'seam vocabulary'],
+    [/\b127\.0\.0\.1\b|\blocalhost\b/i, 'a loopback address'],
+    [/:\d{4,5}\b/, 'a port'],
+    [/\bexe\b|\.exe\b|[A-Z]:\\/i, 'a filesystem path or binary'],
+  ];
+
+  // `/address` is the one reply whose SUBSTANCE is an address and port — that is the
+  // thing a member asked for and types into the game. FR-002 bans naming *our*
+  // infrastructure's ports (the agent's, the admin API's), not the public connect port
+  // this command exists to deliver. Exempted deliberately and narrowly: only the success
+  // branch, and only the port pattern.
+  const isConnectAddress = (r: { text: string }) => r.text === describeAddress({ ip: '203.0.113.7' }, 8211).text;
+  for (const reply of everyReply()) {
+    for (const [pattern, what] of FORBIDDEN) {
+      if (what === 'a port' && isConnectAddress(reply)) continue;
+      assert.doesNotMatch(
+        said(reply),
+        pattern,
+        `a reply exposes ${what}: "${said(reply).trim()}"`,
+      );
+    }
+  }
+
+  // Command descriptions are read by members too, and are the other half of the surface.
+  const descriptions = buildCommandGroups(TENANT_A)
+    .flatMap((g) => g.commands)
+    .flatMap((c) => toCommandEntries(c))
+    .map((e) => e.description);
+  for (const d of descriptions) {
+    for (const [pattern, what] of FORBIDDEN) {
+      assert.doesNotMatch(d, pattern, `a command description exposes ${what}: "${d}"`);
+    }
+  }
+});
+
+test('007 T011 — every failure keeps its detail for the operator (FR-006, SC-003)', () => {
+  // A reply that hides a detail from the member must not lose it. The pairing is the
+  // point: this is the half that makes T010 safe rather than merely quiet.
+  for (const c of EVERY_AGENT_RESULT) {
+    if (c.reached && c.status < 400) continue; // nothing went wrong; nothing to record
+    for (const reply of [describeStart(c), describeStop(c), describePause(c), describeStep(c, 'next')]) {
+      if (reply.tone !== 'failed') continue; // a refusal is an answer, not a fault
+      assert.ok(
+        logged(reply).trim().length > 0,
+        `a failure told the member nothing and the operator nothing either: "${reply.text}"`,
+      );
+      if (c.reached && c.body.message !== undefined) {
+        assert.ok(
+          logged(reply).includes(c.body.message),
+          "the target's own words must survive into the diagnostic, just not into the reply",
+        );
+      }
+    }
+  }
+});
+
+test('007 T038 — every failure leaves the reader something they can DO (SC-002)', () => {
+  // T010 proves nothing leaks. On its own that is satisfiable by saying nothing useful.
+  // This is the other half: the sentence a member is left with must be actionable.
+  const ACTIONABLE = /\btry\b|\bask\b|\bcheck\b|\bwait\b|\bgive it\b|\bagain\b|\bstill running\b|\bnothing was\b|\bnothing to\b|\bpost again\b/i;
+
+  for (const reply of everyReply()) {
+    if (reply.tone === 'ok') continue; // success needs no remedy
+    assert.match(
+      said(reply),
+      ACTIONABLE,
+      `a member is told what went wrong but not what to do: "${said(reply).trim()}"`,
+    );
+  }
+});
+
+test('007 T032 — /help shows the new count with NO help text written for it (006 FR-008)', () => {
+  // 006's whole point, re-proved by the first feature to change the surface since. The
+  // count option was added in ONE place — `buildCommandGroups` — and the listing must
+  // have picked it up as a derivation. If this needed a line of help text anywhere, the
+  // second copy 006 deleted has grown back.
+  const media: ControlledServer[] = [{ name: 'vlc', baseUrl: 'http://x', kind: 'media' }];
+
+  const registered = new Map(
+    (buildCommands(media) as unknown as Cmd[]).map((c) => [c.name, c]),
+  );
+  const listed = new Map(
+    buildCommandGroups(media)
+      .flatMap((g) => g.commands)
+      .flatMap((c) => toCommandEntries(c))
+      .map((e) => [e.form.split(' ')[0]?.replace('/', ''), e]),
+  );
+
+  for (const name of ['next', 'previous']) {
+    const entry = listed.get(name);
+    assert.ok(entry, `/${name} must appear in the listing`);
+    // Shown as OPTIONAL — square brackets, the same shape `[seconds]` already uses.
+    assert.match(entry.form, /\[count\]/, `/${name} must show its optional count in the listing`);
+
+    // And the description is the REGISTERED text, not a second copy authored for /help.
+    const option = (registered.get(name)?.options ?? [])[0] as unknown as { description?: string };
+    assert.ok(option?.description, `/${name} must register a described count option`);
+    assert.ok(
+      entry.description.includes(option.description),
+      `/${name}'s listing text was authored separately instead of derived from the registration`,
+    );
+    // The default is visible to a reader, and stated once, in the registration.
+    assert.match(entry.description, new RegExp(`default ${DEFAULT_STEP_COUNT}`, 'i'));
+  }
+});
+
+/* ── 007 US2 — the detail is reported, never remembered ───────────────────────────── */
+
+test('007 T022 — every availability combination renders, omitting only what is absent (SC-004, SC-005)', () => {
+  const at = (b: Partial<AgentResponse>) => describePause(reached(200, { state: 'paused', ...b })).text;
+
+  // Both halves present.
+  assert.match(at({ title: 'Some Show', elapsedSeconds: 724, totalSeconds: 2671 }), /Some Show · 12:04 \/ 44:31/);
+  // Title only — a player that reports no clock at all.
+  assert.match(at({ title: 'Some Show' }), /Some Show/);
+  assert.doesNotMatch(at({ title: 'Some Show' }), /\d+:\d\d/);
+  // Position only — an untitled item.
+  assert.match(at({ elapsedSeconds: 61, totalSeconds: 125 }), /1:01 \/ 2:05/);
+  // A live stream: elapsed with NO total. "of 0:00" would be invented (SC-005).
+  assert.match(at({ title: 'A stream', elapsedSeconds: 12 }), /A stream · 0:12/);
+  assert.doesNotMatch(at({ title: 'A stream', elapsedSeconds: 12 }), /\//);
+  // A total with no elapsed says nothing useful and is not rendered alone.
+  assert.doesNotMatch(at({ totalSeconds: 2671 }), /44:31/);
+  // Neither: the reply is the bare outcome, exactly as before 007.
+  assert.equal(at({}), 'Paused.');
+
+  // Past an hour the clock widens, and minutes pad — 1:05:03, never 1:5:3.
+  assert.match(at({ elapsedSeconds: 3903, totalSeconds: 7200 }), /1:05:03 \/ 2:00:00/);
+
+  // A placeholder must never stand in for something the player did not report.
+  for (const text of [at({}), at({ title: 'x' }), at({ elapsedSeconds: 1 })]) {
+    assert.doesNotMatch(text, /unknown|n\/a|untitled|null|undefined|NaN/i);
+  }
+});
+
+test('007 T022 — a long name is shortened VISIBLY, never silently clipped (FR-009a, SC-017)', () => {
+  // The filename fallback is where long names come from, and they land inline.
+  const long = 'Some.Show.S02E07.Look.She.Made.A.Hat.1080p.AMZN.WEB-DL.x265.10bit.EAC3.5.1-Ghost.mkv';
+  const text = describePause(reached(200, { state: 'paused', title: long })).text;
+
+  assert.ok(text.length < long.length, 'the name was not shortened at all');
+  assert.match(text, /…/, 'a shortened name must LOOK shortened — a silent clip reads as the whole name');
+  assert.ok(text.startsWith('Paused. · Some.Show.'), 'the shortening must keep the front, which is the identifying part');
+
+  // A name that fits is left exactly alone — no ellipsis, no truncation.
+  const short = describePause(reached(200, { state: 'paused', title: 'Short Name' })).text;
+  assert.doesNotMatch(short, /…/);
+});
+
+test('007 T021 — a game-only tenant renders EXACTLY as it did before this feature (SC-016)', () => {
+  // The strongest regression check in 007: a media target must not change how a game
+  // target reads. Game agents set none of the v5 fields, so the detail renders empty and
+  // these lines are byte-identical to their pre-007 form.
+  const games = describeStatus([
+    { name: 'palworld', result: reached(200, { state: 'running' }) },
+    { name: 'satisfactory', result: reached(200, { state: 'stopped' }) },
+  ]);
+  assert.doesNotMatch(games.text, /·/, 'a game line grew a detail separator it can never fill');
+  assert.match(games.text, /\*\*Palworld\*\* — running/);
+  assert.match(games.text, /\*\*Satisfactory\*\* — stopped/);
+
+  // ONE LINE PER TARGET, detail inline — including when a media target is present (FR-008a).
+  const mixed = describeStatus([
+    { name: 'palworld', result: reached(200, { state: 'running' }) },
+    { name: 'vlc', result: reached(200, { state: 'playing', title: 'Some Show', elapsedSeconds: 724, totalSeconds: 2671 }) },
+  ]);
+  const lines = mixed.text.split('\n').filter((l) => l.trim() !== '');
+  assert.equal(lines.length, 2, 'the all-targets reply must stay one line per target');
+  assert.match(lines[1] ?? '', /playing · Some Show · 12:04 \/ 44:31/);
+  // And the game line is unchanged by its neighbour.
+  assert.equal(lines[0], '**Palworld** — running');
+});
+
+test('007 T020 — nothing observed is REMEMBERED: every reply is a fresh reading (SC-006, FR-011)', () => {
+  // A source scan cannot prove this — a cache is spelled with ordinary words. So drive a
+  // sequence where the reported detail CHANGES between calls and assert each reply
+  // reflects the CURRENT reading, with no trace of the previous one.
+  const readings: AgentResponse[] = [
+    { state: 'playing', title: 'First Item', elapsedSeconds: 10, totalSeconds: 100 },
+    { state: 'playing', title: 'Second Item', elapsedSeconds: 5, totalSeconds: 200 },
+    { state: 'playing', elapsedSeconds: 7 }, // the title DISAPPEARS — an untitled item
+    { state: 'paused' }, // and now nothing is reported at all
+  ];
+
+  const texts = readings.map((body) => describeStep(reached(200, body), 'next', 1).text);
+
+  assert.match(texts[0] ?? '', /First Item/);
+  assert.match(texts[1] ?? '', /Second Item/);
+  assert.doesNotMatch(texts[1] ?? '', /First Item/, 'a previous reading leaked into a later reply');
+  // The hardest case: detail that VANISHES must vanish from the reply too. A cache would
+  // helpfully keep showing the last title it saw — which is exactly the bug FR-011 forbids.
+  assert.doesNotMatch(texts[2] ?? '', /First Item|Second Item/, 'a stale title survived a reading that had none');
+  assert.match(texts[2] ?? '', /0:07/);
+  assert.doesNotMatch(texts[3] ?? '', /Item|\d+:\d\d/, 'a reading with nothing to report must report nothing');
+});
+
+test('007 T039 — no command depends on another having run first (FR-013, SC-014)', () => {
+  // Command independence, which is a different property from T020's statelessness: that
+  // one says nothing is REMEMBERED, this says nothing is REQUIRED. Every reply must be a
+  // pure function of the result handed to it, so running any command first changes
+  // nothing about what another reports.
+  const body: AgentResponse = { state: 'playing', title: 'Some Show', elapsedSeconds: 30, totalSeconds: 60 };
+  const result = reached(200, body);
+
+  const describers = [
+    () => describePause(result).text,
+    () => describeResume(result).text,
+    () => describeSeek(result, 30).text,
+    () => describeStep(result, 'next', 1).text,
+    () => describeStatus([{ name: 'vlc', result }]).text,
+  ];
+
+  // Each in isolation…
+  const alone = describers.map((d) => d());
+  // …and each after every other has run. Identical, in every order.
+  for (let i = 0; i < describers.length; i++) {
+    for (const other of describers) other();
+    assert.equal(describers[i]?.(), alone[i], 'a reply changed because another command ran first');
+  }
+
+  // FR-013's carve-out, asserted so a later reader does not "fix" it: a command's OWN
+  // deferred continuation (the start follow-up) is not a cross-command dependency.
+  assert.equal(describeStart(reached(202, { state: 'starting' })).tone, 'progress');
+});
+
+/* ── 007 Phase 7 convergence ───────────────────────────────────────────────────────── */
+
+test('007 T040 — the follow-up and the no-media reply are IN the internals scan (SC-001)', () => {
+  // Both are member-visible and both used to sit outside the scanned set: the follow-up
+  // because it posts from followup.ts, and the no-media line because it was a bare literal
+  // in the dispatch. Their wording happened to be clean, which is exactly why nothing
+  // noticed they were never checked.
+  const FORBIDDEN: [RegExp, string][] = [
+    [/HTTP\s*\d{3}/i, 'a status code'],
+    [/\b[45]\d{2}\b/, 'a bare status code'],
+    [/\bE[A-Z]{4,}\b/, 'an errno'],
+    [/\bagent\b/i, 'an internal component'],
+    [/\bVLC\b/, 'the player product name'],
+    [/:\d{4,5}\b/, 'a port'],
+  ];
+
+  const extras = [
+    describeFollowup('palworld', true),
+    describeFollowup('palworld', false),
+    { tone: 'failed' as const, text: NO_MEDIA_TARGET },
+  ];
+
+  for (const reply of extras) {
+    for (const [pattern, what] of FORBIDDEN) {
+      assert.doesNotMatch(said(reply), pattern, `exposes ${what}: "${said(reply).trim()}"`);
+    }
+    assert.ok(said(reply).trim().length > 0);
+  }
+
+  // And each still leaves the reader something to do (SC-002).
+  assert.match(said(extras[1]!), /\/status/, 'an unconfirmed start must point somewhere');
+  assert.match(NO_MEDIA_TARGET, /ask/i, 'the no-media reply must offer a next step');
+  // It must not state our configuration model, nor say "server" for a Discord guild —
+  // "server" is the one noun this system cannot afford to overload (FR-002, FR-003).
+  assert.doesNotMatch(NO_MEDIA_TARGET, /configur/i);
+  assert.doesNotMatch(NO_MEDIA_TARGET, /\bserver\b/i);
+});
+
+test('007 T041 — sendReply does not call itself, and both send paths log (SC-003)', () => {
+  // A REGRESSION FENCE for a real bug. A mechanical rewrite of the send sites matched
+  // sendReply's own body and turned its `editReply` into a recursive `sendReply` call —
+  // every Discord reply would have blown the stack. Nothing caught it: the unit tests
+  // exercise the pure describe*/toEmbed functions, and the live check hit the agent
+  // directly rather than the orchestrator's reply path.
+  // Normalise line endings first: this repo checks out CRLF on Windows, and a `\n}\n`
+  // sentinel silently matches nothing there — the slice then runs to end-of-file and
+  // sweeps up every LEGITIMATE sendReply call site. A test that reports a bug in the wrong
+  // place is worse than no test.
+  const src = readFileSync(fileURLToPath(new URL('./commands.ts', import.meta.url)), 'utf8').replace(/\r\n/g, '\n');
+  const after = src.slice(src.indexOf('export async function sendReply'));
+  const end = after.indexOf('\n}\n');
+  assert.ok(end > 0, 'could not isolate sendReply — the fence would pass vacuously');
+  const body = after.slice(0, end);
+
+  assert.equal(
+    /await sendReply\(/.test(body),
+    false,
+    'sendReply calls itself — infinite recursion on every reply',
+  );
+  assert.match(body, /interaction\.editReply/, 'sendReply must actually send');
+
+  // The follow-up posts with followUp(), so it cannot reuse sendReply — it must still log.
+  const followupSrc = readFileSync(fileURLToPath(new URL('./followup.ts', import.meta.url)), 'utf8');
+  assert.match(followupSrc, /logDiagnostic\(/, 'the follow-up must record its operator half too');
 });

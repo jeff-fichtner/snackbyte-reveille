@@ -143,12 +143,14 @@ test('seek sends the exact relative wire form M0 measured (M0 §2/§3/§4)', asy
 
 test('next/previous send the bare step commands and NOTHING else (M0 §7)', async () => {
   const seen = await captureRequests(async (adapter) => {
-    await adapter.next();
-    await adapter.previous();
+    await adapter.next(1);
+    await adapter.previous(1);
   });
 
-  // No id, no index, no count, no playlist read — a blind step carries no parameters at
-  // all. Anything appended here would be knowledge of content (FR-002).
+  // No id, no index, no playlist read. The COUNT never reaches the wire either — VLC has
+  // no "next times N", so a count of N is N identical bare requests (007 T025). What is
+  // banned is knowledge of *which* item (FR-002); how many blind steps to take is a
+  // parameter of the operation, which DECISIONS 023 admits and 024 confirms.
   assert.equal(seen[0], '/requests/status.json?command=pl_next');
   assert.equal(seen[1], '/requests/status.json?command=pl_previous');
 });
@@ -161,4 +163,74 @@ test('the request target is composed only from the configured (loopback) base UR
   assert.match(code, /config\.vlcBaseUrl/, 'the base URL must come from config');
   assert.doesNotMatch(code, /https?:\/\//, 'no host may be hardcoded — the base is config-driven');
   assert.doesNotMatch(code, /node:https/, 'loopback HTTP needs no TLS module');
+});
+
+test('007 T030 — a count of N issues EXACTLY N steps, unclamped (SC-008, FR-016)', async () => {
+  // The property a wrong implementation still satisfies at count=1, which is why this is
+  // worth its own test: one call looks identical whether the loop runs, is skipped, or
+  // fires once regardless of N.
+  for (const n of [1, 2, 3, 7, 40]) {
+    const seen = await captureRequests(async (adapter) => {
+      await adapter.next(n);
+    });
+    assert.equal(seen.length, n, `count ${n} must issue exactly ${n} requests`);
+    for (const url of seen) {
+      assert.equal(url, '/requests/status.json?command=pl_next');
+    }
+  }
+
+  // Nothing is clamped, capped, or rounded down to something "sensible" (FR-016). 250 is
+  // far past any plausible playlist, and that is the point — the player decides what a
+  // step past the end means (M0 §8 measured it wrapping), never this code.
+  const many = await captureRequests(async (adapter) => {
+    await adapter.previous(250);
+  });
+  assert.equal(many.length, 250, 'the count was clamped — FR-016 forbids any bound');
+  assert.equal(new Set(many).size, 1, 'every step must be the same bare command');
+  assert.equal(many[0], '/requests/status.json?command=pl_previous');
+});
+
+test('007 T030 — a count of zero steps zero times, with no special case (SC-008)', async () => {
+  // Passed through exactly as given, like a seek of zero. The temptation is to treat 0 as
+  // "they meant 1"; that would be an opinion about what the member intended.
+  const seen = await captureRequests(async (adapter) => {
+    await adapter.next(0);
+  });
+  assert.deepEqual(seen, [], 'a count of zero must reach the player zero times');
+});
+
+test('007 T030 — the count never reaches the wire, and no step names an item (FR-002)', async () => {
+  const seen = await captureRequests(async (adapter) => {
+    await adapter.next(5);
+    await adapter.previous(5);
+  });
+  for (const url of seen) {
+    // VLC has no "next times N": N is N identical bare requests. Anything else in the
+    // query would be knowledge of WHICH item, which stays forbidden (DECISIONS 024).
+    assert.doesNotMatch(url, /count=|val=|id=|plid=|index=/, `a step carried a parameter: ${url}`);
+  }
+});
+
+test('007 T015 — the adapter STORES nothing about content between calls (FR-011, SC-006)', () => {
+  // The selection ban above is a source scan; it cannot prove statelessness, because a
+  // cache is spelled with perfectly ordinary words. This asserts the shape instead: the
+  // module holds no mutable top-level state for a reading to be kept in.
+  assert.doesNotMatch(code, /^\s*let\s+\w+/m, 'a module-level `let` is somewhere to remember a reading');
+  assert.doesNotMatch(code, /new (Map|Set|WeakMap)/, 'a collection here would be a cache of what was seen');
+  assert.doesNotMatch(code, /last(Seen|Title|State|Known)/i, 'a "last seen" is exactly what FR-011 forbids');
+});
+
+test('007 T015 — OBSERVING is permitted and required; the traps stay avoided (DECISIONS 024)', () => {
+  // The correction, asserted positively. Before 007 the requirement text banned reading
+  // outright, and a test enforced it — so this is the assertion that replaces that one.
+  assert.match(code, /information/, 'reading what the player reports is permitted since DECISIONS 024');
+  assert.match(code, /meta/, 'the measured path is information.category.meta');
+
+  // Trap 1 (m0-vlc-metadata.md §3): `information.title` is an integer INDEX, measured 0.
+  // Reading it would yield a number that renders as a plausible name.
+  assert.doesNotMatch(
+    code,
+    /information\s*\.\s*title|information\?\.\s*title|\[.information.\]\s*\.\s*title/,
+    'information.title is a title INDEX, not a name — the name is at information.category.meta.title',
+  );
 });

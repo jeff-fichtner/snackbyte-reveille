@@ -12,7 +12,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AgentResponse } from '@reveille/contract';
 import { serialize } from './serialize.ts';
-import type { Adapter, GameAdapter, MediaAdapter } from './adapter.ts';
+import type { Adapter, GameAdapter, MediaAdapter, MediaObservation } from './adapter.ts';
 
 function send(res: ServerResponse, status: number, body: AgentResponse): void {
   const payload = JSON.stringify(body);
@@ -99,14 +99,32 @@ async function handleStop(adapter: GameAdapter): Promise<Outcome> {
  * refused honestly (409) rather than pretended (FR-007, FR-008). No content is
  * selected or changed — only the play/pause state (FR-004).
  */
+/**
+ * The optional observation fields, ready to spread into a response body (007 T014).
+ *
+ * Only what the player actually reported is included — an absent field stays absent
+ * rather than becoming `undefined` or `0`, so a target with nothing to say is
+ * indistinguishable on the wire from an older agent that cannot say it (FR-009, SC-011).
+ */
+function detail(o: MediaObservation): Partial<AgentResponse> {
+  return {
+    ...(o.title !== undefined ? { title: o.title } : {}),
+    ...(o.elapsedSeconds !== undefined ? { elapsedSeconds: o.elapsedSeconds } : {}),
+    ...(o.totalSeconds !== undefined ? { totalSeconds: o.totalSeconds } : {}),
+  };
+}
+
 async function handlePause(adapter: MediaAdapter): Promise<Outcome> {
-  const state = await adapter.getState();
+  // ONE read gives the state to decide on AND the detail to report (007). Reading twice
+  // could straddle a change and pair a title with a state it never went with.
+  const seen = await adapter.observe();
+  const state = seen.state;
   if (state === 'stopped') {
     return { status: 409, body: { state, message: 'Nothing is playing.' } };
   }
   if (state === 'paused') {
     // Already in the target state — a reported no-op, not a failure (FR-007).
-    return { status: 200, body: { state: 'paused', message: 'Already paused.' } };
+    return { status: 200, body: { state: 'paused', message: 'Already paused.', ...detail(seen) } };
   }
   try {
     await adapter.pause();
@@ -114,17 +132,20 @@ async function handlePause(adapter: MediaAdapter): Promise<Outcome> {
     const message = error instanceof Error ? error.message : String(error);
     return { status: 500, body: { state: 'error', message } };
   }
-  return { status: 200, body: { state: 'paused' } };
+  // The detail describes what was OBSERVED before acting, and is reported as such — this
+  // does not claim the command caused it (FR-010).
+  return { status: 200, body: { state: 'paused', ...detail(seen) } };
 }
 
 /** POST /play — force-resume the paused item (003, media agents only). */
 async function handleResume(adapter: MediaAdapter): Promise<Outcome> {
-  const state = await adapter.getState();
+  const seen = await adapter.observe();
+  const state = seen.state;
   if (state === 'stopped') {
     return { status: 409, body: { state, message: 'Nothing is loaded to resume.' } };
   }
   if (state === 'playing') {
-    return { status: 200, body: { state: 'playing', message: 'Already playing.' } };
+    return { status: 200, body: { state: 'playing', message: 'Already playing.', ...detail(seen) } };
   }
   try {
     await adapter.resume();
@@ -132,6 +153,8 @@ async function handleResume(adapter: MediaAdapter): Promise<Outcome> {
     const message = error instanceof Error ? error.message : String(error);
     return { status: 500, body: { state: 'error', message } };
   }
+  // Observed BEFORE acting, and reported as an observation — not a claim that resuming
+  // produced it (FR-010).
   return { status: 200, body: { state: 'playing' } };
 }
 
@@ -146,18 +169,84 @@ async function handleResume(adapter: MediaAdapter): Promise<Outcome> {
  * M0 §8 measured VLC wrapping at the playlist boundary, and checking for that would
  * require knowing the playlist (FR-002).
  */
-async function handleStep(adapter: MediaAdapter, step: 'next' | 'previous'): Promise<Outcome> {
+/**
+ * Read `count` off a step request (007).
+ *
+ * Mirrors `handleSeek`'s validation exactly, and for the same reason: **required, with no
+ * default here.** The default of 1 belongs to the Discord surface, where a *member* may
+ * omit the argument; by the time a request reaches the seam the count is always explicit,
+ * so an absent or malformed one is a caller bug and gets a 400 naming it (FR-018).
+ *
+ * Unlike `seconds` it is a **magnitude** — the orchestrator has already turned the sign
+ * into a choice of verb, so a negative here is a caller bug too, not a direction.
+ *
+ * The value is otherwise **unvalidated**: no clamping, no cap, no range check (FR-016).
+ * The safe-integer refusal is not that bound — it rejects a value a JS number cannot hold
+ * *at all*, which is the no-silent-wrong-behaviour rule rather than a policy about how far
+ * a member may step.
+ */
+function readCount(req: IncomingMessage): { value: number } | Outcome {
+  const raw = new URL(req.url ?? '', 'http://agent.invalid').searchParams.get('count');
+  if (raw === null || raw.trim() === '') {
+    return {
+      status: 400,
+      body: { state: 'error', message: 'Missing required query parameter `count`.' },
+    };
+  }
+  // Integer-only and unsigned. `Number` alone would accept `1e3`, ` 12 `, and `0x1f`.
+  if (!/^\d+$/.test(raw.trim())) {
+    return {
+      status: 400,
+      body: {
+        state: 'error',
+        message: `Query parameter \`count\` must be a whole number of items, got ${JSON.stringify(raw)}.`,
+      },
+    };
+  }
+  const value = Number(raw.trim());
+  if (!Number.isSafeInteger(value)) {
+    return {
+      status: 400,
+      body: {
+        state: 'error',
+        message:
+          `Query parameter \`count\` is too large to represent exactly, got ${JSON.stringify(raw)}. ` +
+          `The limit is ${Number.MAX_SAFE_INTEGER}.`,
+      },
+    };
+  }
+  return { value };
+}
+
+async function handleStep(
+  adapter: MediaAdapter,
+  step: 'next' | 'previous',
+  req: IncomingMessage,
+): Promise<Outcome> {
+  const count = readCount(req);
+  if ('status' in count) return count;
+
   const state = await adapter.getState();
   if (state === 'stopped') {
     return { status: 409, body: { state, message: 'Nothing is playing.' } };
   }
   try {
-    await (step === 'next' ? adapter.next() : adapter.previous());
+    // The whole loop runs inside the caller's mutex hold, so a multi-item step is ONE
+    // indivisible operation (007 FR-019) — `route` is already wrapped by `serialize`.
+    await (step === 'next' ? adapter.next(count.value) : adapter.previous(count.value));
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     return { status: 500, body: { state: 'error', message } };
   }
-  return { status: 200, body: { state } };
+  // Look AFTER acting, because "what is playing now" is the useful answer for a step and
+  // the pre-step reading would name the item we just left. DECISIONS 024 permits this:
+  // OBSERVING and reporting is honest; what stays forbidden is asserting the command
+  // caused it, or retrying until reality matches an intent. Still no claim of success —
+  // M0 §8 measured VLC wrapping at the boundary, and this neither checks nor corrects it.
+  // A read that fails here must not turn a completed step into an error, so it falls back
+  // to the state we already have.
+  const after = await adapter.observe().catch(() => undefined);
+  return { status: 200, body: { state: after?.state ?? state, ...(after ? detail(after) : {}) } };
 }
 
 /**
@@ -234,6 +323,13 @@ async function handleSeek(adapter: MediaAdapter, req: IncomingMessage): Promise<
 
 /** GET /status — the target's state, read-only. Changes nothing (FR-022, SC-005). */
 async function handleStatus(adapter: Adapter): Promise<Outcome> {
+  // A game answers exactly as it always has — no new fields, byte-identical (SC-016).
+  // Only a media target has anything more to report, and it comes from the same single
+  // read that derives the state.
+  if (adapter.kind === 'media') {
+    const seen = await adapter.observe();
+    return { status: 200, body: { state: seen.state, ...detail(seen) } };
+  }
   const state = await adapter.getState();
   return { status: 200, body: { state } };
 }
@@ -265,9 +361,9 @@ async function route(req: IncomingMessage, adapter: Adapter): Promise<Outcome> {
     case '/seek':
       return await handleSeek(adapter, req);
     case '/next':
-      return await handleStep(adapter, 'next');
+      return await handleStep(adapter, 'next', req);
     case '/previous':
-      return await handleStep(adapter, 'previous');
+      return await handleStep(adapter, 'previous', req);
     default:
       return { status: 404, body: { state: 'error', message: `No such endpoint: ${path}` } };
   }

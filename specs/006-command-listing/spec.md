@@ -171,6 +171,10 @@ same way.
 - **SC-003**: **Zero maintenance drift** — adding or removing a target changes the listing correctly with **0** edits to description text.
 - **SC-004**: A guild with no media target is shown **0** media commands; a guild with no game target is shown **0** game commands.
 - **SC-005**: **Zero cross-guild leakage** — the number of references to another guild's targets, across every listing, is **0**.
+> **CORRECTED by 007 (DECISIONS 024).** This inherited 005's overshoot. It stands for the
+> **listing** — `/help` describes *availability*, and naming content there would still be
+> wrong — but it must not be read as forbidding a *reply* from reporting what the player
+> says is loaded. That is permitted since 007.
 - **SC-006**: **Zero content leakage** — the number of item, file, playlist, position, or duration references in any listing is **0**.
 - **SC-007**: The listing is produced with **0** requests to any agent, and is identical whether targets are running, stopped, or unreachable.
 - **SC-008**: **Zero regressions** — every command that existed before this feature behaves identically, verified by the existing checks continuing to pass unchanged.

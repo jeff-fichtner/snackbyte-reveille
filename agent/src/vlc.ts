@@ -14,15 +14,24 @@
  * `127.0.0.1` and speaks HTTP, so unlike Satisfactory there is no self-signed TLS and
  * therefore no `node:https`, and the agent keeps zero runtime dependencies.
  *
- * WHAT MAY AND MAY NOT APPEAR HERE. 005 moved this line (DECISIONS 022): the rule is
- * **no KNOWLEDGE of content**, not **no MOVEMENT through content**. 003's older phrasing
- * — "Reveille toggles playback, never chooses what plays" — no longer describes the file.
+ * WHAT MAY AND MAY NOT APPEAR HERE. The line has moved twice. 005 (DECISIONS 022) went
+ * from "no MOVEMENT through content" to "no KNOWLEDGE of content". 007 (DECISIONS 024)
+ * corrects that phrasing: it was always about **persistence and opinions**, never about
+ * **observation**. The rule is **mechanism, not policy** and **level-triggered, not
+ * edge-triggered** — observe current reality, act, and forget.
+ *
+ *   Permitted : OBSERVING what the player reports in the response already fetched —
+ *               the title, the position, the duration — and handing it upward to be
+ *               told once and discarded. Nothing observed is ever stored (FR-011).
  *
  *   Permitted : blind relative movement — `pl_next`, `pl_previous`, and a RELATIVE
  *               `seek`. None of them needs to know what is loaded.
- *   Forbidden : anything that does — `pl_jump` (a NOMINATED item, the sharpest contrast
+ *   Forbidden : CHOOSING content — `pl_jump` (a NOMINATED item, the sharpest contrast
  *               with `pl_next`), `pl_play`, `in_play`, `in_enqueue`, `pl_empty`,
  *               `pl_delete`; plus volume, `pl_stop`, and OS-level process termination.
+ *               Selecting what plays is the operator's job; this file has no opinion.
+ *   Forbidden : STORING anything about content between calls — no cache, no memo, no
+ *               "last seen". Every reading is fresh, used once, and dropped.
  *   Forbidden : an ABSOLUTE seek (FR-011). A bare `val=30` seeks *to* 0:30 rather than
  *               forward 30s — silent and plausible-looking — so every seek carries an
  *               explicit sign.
@@ -32,7 +41,7 @@
  */
 import type { MediaState } from '@reveille/contract';
 import type { VlcConfig } from './config.ts';
-import type { MediaAdapter } from './adapter.ts';
+import type { MediaAdapter, MediaObservation } from './adapter.ts';
 
 /** The status document and the command sink are the same endpoint (M0 §1, §4). */
 const STATUS_PATH = '/requests/status.json';
@@ -101,12 +110,62 @@ async function vlcFetch(config: VlcConfig, command?: string): Promise<Response> 
  * fail-loud rule forbids.
  */
 export async function getState(config: VlcConfig): Promise<MediaState> {
+  return (await observe(config)).state;
+}
+
+/**
+ * State AND what the player says is loaded, from ONE read (007).
+ *
+ * Every field path here was **measured**, not read from documentation
+ * (`specs/007-better-replies/m0-vlc-metadata.md`), and the measurement caught two traps
+ * that a plausible implementation would have walked straight into:
+ *
+ *   1. **`information.title` is an integer title INDEX, not a name** — it measured `0`.
+ *      Reaching for the obvious-looking field yields a number that would render as a
+ *      perfectly plausible title. The name lives at `information.category.meta.title`.
+ *   2. **The whole `information` block disappears when nothing is loaded** — not merely
+ *      the title. A direct `body.information.category.meta.title` THROWS on a stopped
+ *      player, so the block is guarded rather than the field.
+ *
+ * The title/filename fallback happens **here** rather than in the orchestrator, so one
+ * settled name crosses the seam (FR-009). Measured: VLC does NOT synthesise a title from
+ * the filename, so both branches are live. Shortening a long name is a *presentation*
+ * decision and deliberately does NOT happen here (FR-005, FR-009a).
+ */
+export async function observe(config: VlcConfig): Promise<MediaObservation> {
   const res = await vlcFetch(config);
-  const body = (await res.json()) as { state?: unknown };
-  if (body.state === 'playing' || body.state === 'paused' || body.state === 'stopped') {
-    return body.state;
+  const body = (await res.json()) as {
+    state?: unknown;
+    time?: unknown;
+    length?: unknown;
+    information?: { category?: { meta?: { title?: unknown; filename?: unknown } } };
+  };
+
+  if (body.state !== 'playing' && body.state !== 'paused' && body.state !== 'stopped') {
+    throw new Error(`VLC reported an unrecognised state: ${JSON.stringify(body.state)}.`);
   }
-  throw new Error(`VLC reported an unrecognised state: ${JSON.stringify(body.state)}.`);
+
+  // Trap 2: guard the block, not the field.
+  const meta = body.information?.category?.meta;
+  const title = typeof meta?.title === 'string' && meta.title.trim() !== ''
+    ? meta.title
+    : typeof meta?.filename === 'string' && meta.filename.trim() !== ''
+      ? meta.filename
+      : undefined;
+
+  return {
+    state: body.state,
+    ...(title !== undefined ? { title } : {}),
+    ...(positive(body.time) ? { elapsedSeconds: body.time } : {}),
+    // Measured: `length` is 0 when there is no total (and when nothing is loaded). Zero
+    // means ABSENT, not a zero-length item — reporting "of 0:00" would be invented detail.
+    ...(positive(body.length) ? { totalSeconds: body.length } : {}),
+  };
+}
+
+/** A usable whole-second reading. Rejects absent, negative, fractional, and 0-as-absent. */
+function positive(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0;
 }
 
 /**
@@ -154,13 +213,35 @@ export async function seek(config: VlcConfig, seconds: number): Promise<void> {
  * set, and §7 measured a step **resuming** a paused player. Both are recorded so replies
  * stay honest, not so this code compensates for them (FR-003).
  */
-export async function next(config: VlcConfig): Promise<void> {
-  await vlcFetch(config, NEXT_COMMAND);
+export async function next(config: VlcConfig, count: number): Promise<void> {
+  await step(config, NEXT_COMMAND, count);
 }
 
 /** Step to the previous item. Mirror of {@link next}. */
-export async function previous(config: VlcConfig): Promise<void> {
-  await vlcFetch(config, PREVIOUS_COMMAND);
+export async function previous(config: VlcConfig, count: number): Promise<void> {
+  await step(config, PREVIOUS_COMMAND, count);
+}
+
+/**
+ * Issue a blind step `count` times (007).
+ *
+ * **VLC has no "next times N"** — `pl_next` takes no argument, so N really is N requests.
+ * They are deliberately **sequential**, not concurrent: the player applies them in order,
+ * and firing them in parallel would race for no benefit on a loopback interface measured
+ * at ~22ms per call (`m0-vlc-metadata.md` §5).
+ *
+ * The caller holds the agent's command mutex for the whole of this, so the sequence is one
+ * indivisible operation — no other command lands midway (FR-019). `/status` is unaffected:
+ * it deliberately does not sit on that mutex.
+ *
+ * `count` is **not** bounded here (FR-016), and the cost of that is recorded rather than
+ * fixed: a very large count holds the mutex for a very long time. Clamping it would be the
+ * exact opinion this file is forbidden to hold.
+ */
+async function step(config: VlcConfig, command: string, count: number): Promise<void> {
+  for (let i = 0; i < count; i++) {
+    await vlcFetch(config, command);
+  }
 }
 
 /**
@@ -173,10 +254,11 @@ export function createVlcAdapter(config: VlcConfig): MediaAdapter {
   return {
     kind: 'media',
     getState: () => getState(config),
+    observe: () => observe(config),
     pause: () => pause(config),
     resume: () => resume(config),
     seek: (seconds: number) => seek(config, seconds),
-    next: () => next(config),
-    previous: () => previous(config),
+    next: (count: number) => next(config, count),
+    previous: (count: number) => previous(config, count),
   };
 }

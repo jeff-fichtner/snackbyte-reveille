@@ -192,11 +192,24 @@ are absent from the second and that no input in the second reaches the first's p
   these controls produce may reveal what is playing. The player's **playback state**
   (playing / paused / stopped) is not content and MAY still be reported, exactly as `/status`
   already does — the ban is on knowing *what*, never on knowing *whether*.
+> **CORRECTED by 007 (DECISIONS 024).** This requirement overshot the principle it was
+> protecting. Only **store** belongs to it — the rest of the list (`read, inspect, name,
+> list, display`) banned *observation*, which was never what "no knowledge of content"
+> meant. The principle is **persistence and opinions**: nothing is remembered between
+> calls, and the code never *chooses* content. Observing what the player reports in a
+> response already fetched, telling the member, and forgetting it is **permitted** since
+> 007. Selecting content remains forbidden, unchanged.
 - **FR-003**: The system MUST NOT verify the **outcome** of a control. It MUST NOT check that
   the intended effect occurred, and a reply MUST NOT assert an outcome the system did not
   confirm — that the player advanced to a different item, or that the position landed anywhere
   in particular. Reading the player's **playback state** is explicitly **not** verification and
   is permitted (FR-006); the ban is on claiming a result.
+> **CORRECTED by 007 (DECISIONS 024).** Read literally this also forbade *reporting* what
+> is playing after a step — looking at all, rather than claiming. The line the principle
+> draws is between **observing and reporting** (honest) and **asserting causation or
+> retrying toward a desired state** (an opinion). A reply may now say what the player
+> reports; it still may not claim the command caused it, and nothing retries until reality
+> matches an intent.
 - **FR-004**: The seek controls MUST accept an **optional amount in seconds**, defaulting to
   **30** when omitted. An explicitly supplied amount MUST be honored exactly as given.
 - **FR-005**: The seek amount MUST NOT be bounded. The system MUST NOT clamp it, validate it

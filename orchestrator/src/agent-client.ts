@@ -66,14 +66,20 @@ export class AgentClient {
     return this.#request('POST', `/seek?seconds=${seconds}`);
   }
 
-  /** Step to the next playlist item (005, media agents only). No parameters — a blind step. */
-  next(): Promise<AgentResult> {
-    return this.#request('POST', '/next');
+  /**
+   * Step `count` items forward (005; count added 007, media agents only).
+   *
+   * `count` is always a POSITIVE magnitude — the caller has already turned the sign into
+   * a choice between this and {@link previous} (007 FR-005). It is a parameter of the
+   * operation, never a name for which item (DECISIONS 023/024).
+   */
+  next(count: number): Promise<AgentResult> {
+    return this.#request('POST', `/next?count=${count}`);
   }
 
   /** Step to the previous playlist item (005, media agents only). */
-  previous(): Promise<AgentResult> {
-    return this.#request('POST', '/previous');
+  previous(count: number): Promise<AgentResult> {
+    return this.#request('POST', `/previous?count=${count}`);
   }
 
   /** Read-only state, for `/status` and the US3 follow-up. Never mutates. */

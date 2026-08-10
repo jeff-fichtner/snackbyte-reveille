@@ -20,10 +20,14 @@ was a new *kind* — a second adapter kind (`media`) alongside `game`, with its 
 verbs — but still one agent at one more address (DECISIONS 017). 005 added four more
 media commands without adding a kind, a component, or a dependency.
 
-**Six media commands, five seam verbs.** `/forward` and `/back` are one operation over
-a signed magnitude and share `POST /seek`; the orchestrator negates for `/back`. That
-is why `/back -30` seeks *forward* — the amount is passed through exactly as given, and
-the reply says so rather than hiding it (FR-005).
+**Six media commands, five seam verbs — and two pairs that are one operation each.**
+`/forward` and `/back` share `POST /seek`; `/next` and `/previous` share the stepping
+pair. Both take a **signed magnitude**, and in both the orchestrator reads the sign and
+the agent receives only a positive number: `/back` negates the amount, and a negative
+count swaps *which verb* is sent. That is why `/back -30` seeks *forward* and `/next -3`
+steps *back* — the value is passed through exactly as given, and the reply states the
+direction actually taken rather than the one the command name implies (005 FR-005,
+007 FR-017).
 
 **`/help` lists what the asking guild can run, and cannot go stale (006).** It is the
 first command that contacts **no agent at all** — so it never defers, is answered before
@@ -87,15 +91,22 @@ Never import across those packages; eslint blocks it. The seam is the one
 genuinely irreversible decision here (Constitution I). It has **eight** verbs:
 `POST /start`, `POST /stop`, `GET /status` (games; `/status` added 002), and
 `POST /pause`, `POST /play` (media; added 003), `POST /next`, `POST /previous`,
-`POST /seek?seconds=<signed int>` (media; added 005 — seam v4, additive, every
-earlier field and verb unchanged). No target id ever enters a path, query, or body —
+`POST /seek?seconds=<signed int>`, `POST /next?count=<positive int>`,
+`POST /previous?count=<positive int>` (media; seek added 005 — seam v4; `count` and three
+optional **response** fields added 007 — seam v5. Both additive: every earlier field and
+verb unchanged, and a v4 agent still works). The v5 response fields — `title`,
+`elapsedSeconds`, `totalSeconds` — are what a media target *observed*, all optional; a
+game agent sets none, and an agent that omits them is indistinguishable from a target with
+nothing to report. No target id ever enters a path, query, or body —
 an agent's URL *is* its identity. An agent answers only its kind's verbs (a `/start`
 to a media agent is a 404), and the orchestrator never sends the wrong ones.
 
-**`seconds` is the seam's only parameter, and the rule that admits it is narrow.**
-Every verb before 005 was a bare POST; nothing had ever crossed in a request. The
-rule: **a parameter of the *operation* may cross; a name for *which target* may not**
-(DECISIONS 023). `seconds` says how far, never which player. This does **not** license
+**`seconds` and `count` are the seam's only request parameters, and the rule that
+admits them is narrow.** Every verb before 005 was a bare POST; nothing had ever crossed
+in a request. The rule: **a parameter of the *operation* may cross; a name for *which
+target* may not** (DECISIONS 023, confirmed by 024). `seconds` says how far, `count` says
+how many — never *which* player and never *which item*. A step of three is the same blind
+step three times: it nominates nothing. This does **not** license
 a `target`/`name`/`id`/`kind` parameter — that stays an architecture change. The
 30-second default lives **only** in the orchestrator; the agent has none and answers
 `400` on a missing or non-integer value, because a member omitting an argument is a
@@ -117,17 +128,21 @@ server running (Constitution IV). Each adapter's source is tested for this and f
 save-before-shutdown: `palworld.test.ts` **and** `satisfactory.test.ts`. Media has
 no `/stop`; `vlc.test.ts` bans OS kill **and** every content command.
 
-**The media ban is "no *knowledge* of content", not "no *movement* through it" (005,
-DECISIONS 022).** 003's rule was "Reveille toggles playback, never chooses what
-plays"; 005 narrowed it. **Permitted**: blind relative movement — `pl_next`,
-`pl_previous`, and a *relative* `seek`, none of which needs to know what is loaded.
-**Still forbidden**: anything that does — `pl_jump` (a *nominated* item, the sharpest
-contrast with `pl_next`), `pl_play`, `in_play`, `in_enqueue`, `pl_empty`,
-`pl_delete`, plus volume, `pl_stop`, and OS kill. **Newly forbidden**: an *absolute*
-seek. M0 measured a bare `val=30` seeking *to* 0:30 instead of forward 30s — silent
-and plausible-looking — so the adapter always sends an explicit sign (`%2B` or `-`)
-and `vlc.test.ts` bans the unsigned form (FR-011). The check ends up stricter than
-003's, not looser.
+**The media ban is about *persistence and opinions*, not *observation* (007, DECISIONS
+024).** The rule has moved twice: 005 went from "no movement through content" to "no
+knowledge of content" (DECISIONS 022); 007 corrects that phrasing, because only *store*
+ever belonged to it. Reveille is **mechanism, not policy** and **level-triggered, not
+edge-triggered** — each call observes current reality, acts, and forgets.
+**Permitted**: blind relative movement (`pl_next`, `pl_previous`, a *relative* `seek`), and
+— since 007 — **observing** what the player reports in the response already fetched (title,
+position, duration), telling the member, and discarding it. **Still forbidden**: *choosing*
+content — `pl_jump` (a *nominated* item, the sharpest contrast with `pl_next`), `pl_play`,
+`in_play`, `in_enqueue`, `pl_empty`, `pl_delete` — plus volume, `pl_stop`, OS kill, and an
+*absolute* seek (M0 measured a bare `val=30` seeking *to* 0:30 instead of forward 30s, so
+the adapter always sends an explicit sign). **Also still forbidden**: *storing* anything
+observed between calls — no cache, no memo, no "last seen" — and any command depending on
+another's leftovers. `vlc.test.ts` enforces the selection ban against source and the
+statelessness ban behaviourally.
 
 **`/status` is read-only and must not sit on the command mutex.** The agent
 serializes the acting verbs (`/start`·`/stop`, or `/pause`·`/play` for media —

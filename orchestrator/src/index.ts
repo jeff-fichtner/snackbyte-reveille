@@ -32,6 +32,8 @@ import {
   handleResume,
   handleSeek,
   handleStep,
+  DEFAULT_STEP_COUNT,
+  NO_MEDIA_TARGET,
   buildCommandGroups,
   describeCommandList,
   toEmbed,
@@ -136,7 +138,11 @@ async function reportFailure(interaction: ChatInputCommandInteraction, error: un
   const message = error instanceof Error ? error.message : String(error);
   process.stderr.write(`/${interaction.commandName} failed: ${message}\n`);
   try {
-    const text = `Something went wrong handling that.\n> ${message}`;
+    // The detail stays in the log line above. It used to be quoted into the channel too,
+    // which made this the last place an errno or a stack message could reach a member
+    // (007 FR-001, FR-005) — and it is the one branch where the reader can do nothing
+    // with it anyway.
+    const text = 'Something went wrong handling that. Try again, and if it keeps happening let whoever runs this know.';
     if (interaction.replied || interaction.deferred) {
       await interaction.editReply(text);
     } else {
@@ -186,7 +192,7 @@ async function handle(interaction: ChatInputCommandInteraction, rt: TenantRuntim
     // media player (SC-001). Registered only when the tenant has one.
     if (interaction.commandName === 'pause' || interaction.commandName === 'play') {
       if (rt.mediaTarget === undefined) {
-        await interaction.editReply('No media player is configured for this server.');
+        await interaction.editReply(NO_MEDIA_TARGET);
         return;
       }
       return interaction.commandName === 'pause'
@@ -198,10 +204,14 @@ async function handle(interaction: ChatInputCommandInteraction, rt: TenantRuntim
     // resolved-tenant path as every other media command.
     if (interaction.commandName === 'next' || interaction.commandName === 'previous') {
       if (rt.mediaTarget === undefined) {
-        await interaction.editReply('No media player is configured for this server.');
+        await interaction.editReply(NO_MEDIA_TARGET);
         return;
       }
-      return await handleStep(interaction, rt.agents, rt.mediaTarget.name, interaction.commandName);
+      // The ONLY place the step default is applied, mirroring the seek pair. The count is
+      // then passed through exactly as given — no clamping (FR-016); `handleStep` turns the
+      // sign into a verb choice so a negative reverses direction (FR-017).
+      const count = interaction.options.getInteger('count') ?? DEFAULT_STEP_COUNT;
+      return await handleStep(interaction, rt.agents, rt.mediaTarget.name, interaction.commandName, count);
     }
 
     // `/forward [seconds]` and `/back [seconds]` (005) — bare like pause/play, inside the
@@ -209,7 +219,7 @@ async function handle(interaction: ChatInputCommandInteraction, rt: TenantRuntim
     // re-implemented (004 FR-002/FR-003).
     if (interaction.commandName === 'forward' || interaction.commandName === 'back') {
       if (rt.mediaTarget === undefined) {
-        await interaction.editReply('No media player is configured for this server.');
+        await interaction.editReply(NO_MEDIA_TARGET);
         return;
       }
       // The ONLY place the 30s default is applied. The amount is then passed through

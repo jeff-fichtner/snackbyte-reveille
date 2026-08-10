@@ -26,6 +26,10 @@ function mediaStub(state: MediaState, over: Partial<MediaAdapter> = {}): MediaAd
   return {
     kind: 'media',
     getState: async () => state,
+    // Default: a player that reports nothing but its state — the shape a game agent and
+    // an older media agent both produce, so every pre-007 test still exercises the
+    // "no detail available" path (FR-009, SC-011).
+    observe: async () => ({ state }),
     pause: async () => {},
     resume: async () => {},
     seek: async () => {},
@@ -249,7 +253,7 @@ test('POST /next and /previous step, refuse on stopped, and read no parameters (
     );
     try {
       for (const verb of ['next', 'previous']) {
-        const res = await fetch(`${base}/${verb}`, { method: 'POST' });
+        const res = await fetch(`${base}/${verb}?count=1`, { method: 'POST' });
         assert.equal(res.status, 200, `/${verb} must act while ${state}`);
         // 200 means ISSUED — the body reports the state we read, never a claim that the
         // item changed. M0 §8: VLC wraps at the boundary and we never look.
@@ -257,11 +261,13 @@ test('POST /next and /previous step, refuse on stopped, and read no parameters (
       }
       assert.deepEqual(calls, ['next', 'previous']);
 
-      // A blind step carries no parameters. Anything in the query is ignored outright —
-      // there is nothing for a caller to smuggle in.
+      // The line DECISIONS 023 draws, now that a step carries one parameter: a parameter
+      // of the OPERATION may cross; a name for WHICH ITEM may not. `count` is honoured;
+      // an id or an index is ignored outright, because there is nothing in the agent that
+      // would read one — there is no smuggling route, not merely an unused branch.
       calls.length = 0;
-      assert.equal((await fetch(`${base}/next?plid=7&index=2`, { method: 'POST' })).status, 200);
-      assert.deepEqual(calls, ['next'], 'query parameters must not change what a step does');
+      assert.equal((await fetch(`${base}/next?count=1&plid=7&index=2`, { method: 'POST' })).status, 200);
+      assert.deepEqual(calls, ['next'], 'an item identifier must not change what a step does');
     } finally {
       await close();
     }
@@ -273,7 +279,10 @@ test('POST /next and /previous step, refuse on stopped, and read no parameters (
   const stoppedSrv = await startServer(mediaStub('stopped'));
   try {
     for (const verb of ['next', 'previous']) {
-      const res = await fetch(`${stoppedSrv.base}/${verb}`, { method: 'POST' });
+      // `count` is validated BEFORE the state is read, exactly as `/seek` validates
+      // `seconds` first: a malformed request is the caller's bug whatever the player is
+      // doing, and answering 409 to a request we never understood would be a worse answer.
+      const res = await fetch(`${stoppedSrv.base}/${verb}?count=1`, { method: 'POST' });
       assert.equal(res.status, 409);
       assert.deepEqual(await body(res), { state: 'stopped', message: 'Nothing is playing.' });
     }
@@ -285,7 +294,7 @@ test('POST /next and /previous step, refuse on stopped, and read no parameters (
     mediaStub('playing', { next: async () => { throw new Error('player unreachable'); } }),
   );
   try {
-    const res = await fetch(`${brokenSrv.base}/next`, { method: 'POST' });
+    const res = await fetch(`${brokenSrv.base}/next?count=1`, { method: 'POST' });
     assert.equal(res.status, 500);
     assert.equal((await body(res)).state, 'error');
   } finally {
@@ -312,11 +321,11 @@ test('/next runs ON the command mutex, while /status still answers (FR-021)', as
     mediaStub('playing', { next: async () => { enteredNext(); await nextGate; } }),
   );
   try {
-    const first = fetch(`${base}/next`, { method: 'POST' });
+    const first = fetch(`${base}/next?count=1`, { method: 'POST' });
     await nextEntered;
 
     let secondSettled = false;
-    const second = fetch(`${base}/previous`, { method: 'POST' }).then((r) => { secondSettled = true; return r; });
+    const second = fetch(`${base}/previous?count=1`, { method: 'POST' }).then((r) => { secondSettled = true; return r; });
     await new Promise((r) => setTimeout(r, 150));
     assert.equal(secondSettled, false, '/previous must wait for the in-flight /next');
 
@@ -388,6 +397,53 @@ test('/status runs OFF the command mutex — it answers while a /stop is mid-fli
     assert.equal((await stopDone).status, 200);
   } finally {
     releaseStop(); // ensure the server can close even if an assertion threw
+    await close();
+  }
+});
+
+test('007 T031 — a MULTI-item step is indivisible, and /status still answers (FR-019)', async () => {
+  // The existing mutex test proves one step serialises. This proves the property that
+  // actually matters for 007: a count of N is ONE operation, not N chances for another
+  // command to land in the middle. A loop written outside the mutex hold would pass the
+  // single-step test and fail this one.
+  let steps = 0;
+  let enteredFirst = (): void => {};
+  const firstEntered = new Promise<void>((resolve) => { enteredFirst = resolve; });
+  let release = (): void => {};
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+
+  const { base, close } = await startServer(
+    mediaStub('playing', {
+      next: async (count: number) => {
+        for (let i = 0; i < count; i++) {
+          steps++;
+          if (steps === 1) { enteredFirst(); await gate; }
+        }
+      },
+      pause: async () => { throw new Error('pause landed in the middle of a multi-step'); },
+    }),
+  );
+  try {
+    const stepping = fetch(`${base}/next?count=4`, { method: 'POST' });
+    await firstEntered;
+
+    // Mid-sequence: another acting command must NOT be admitted...
+    let pauseSettled = false;
+    const paused = fetch(`${base}/pause`, { method: 'POST' }).then((r) => { pauseSettled = true; return r; });
+    await new Promise((r) => setTimeout(r, 120));
+    assert.equal(pauseSettled, false, 'a command landed inside an in-flight multi-step');
+    assert.equal(steps, 1, 'the sequence advanced past its gate while another command waited');
+
+    // ...but `/status` must, because it deliberately does not sit on the command mutex.
+    const status = await fetch(`${base}/status`);
+    assert.equal(status.status, 200, '/status stalled behind a long step — it must stay off the mutex');
+    assert.deepEqual(await status.json(), { state: 'playing' });
+
+    release();
+    assert.equal((await stepping).status, 200);
+    assert.equal(steps, 4, 'the whole count must run as one operation');
+    await paused; // it throws inside the adapter, so it answers 500 — it merely must not run EARLY
+  } finally {
     await close();
   }
 });
