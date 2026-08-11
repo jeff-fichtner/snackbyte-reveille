@@ -1,5 +1,5 @@
 {
-  "name": "snackbyte-reveille",
+  "name": "snackbyte-controlplane",
   "private": true,
   "version": "0.8.0",
   "description": "An on-demand control plane for self-hosted game servers.",

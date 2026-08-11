@@ -8,7 +8,7 @@
  * scheduled. `reveille start` blocks in the **foreground** and always terminates.
  *
  * Two namespaces, one word apart: **bare verbs act on targets**, `plane` verbs act on
- * Reveille's own processes. The bare half is derived from `buildCommandGroups`, so it
+ * the control plane's own processes. The bare half is derived from `buildCommandGroups`, so it
  * cannot offer a command Discord lacks or describe one differently.
  *
  * Talks **straight to the agents**. The orchestrator is never in the path — it has no
@@ -248,8 +248,9 @@ function renderPlane(verb: PlaneVerb, outcomes: readonly ServiceOutcome[]): stri
     const detail = o.detail === undefined ? '' : `  ${o.detail}`;
     return `  ${o.label.padEnd(20)} ${o.state.padEnd(8)}${detail}`;
   });
-  // The heading is load-bearing: this answers "are Reveille's processes running", which is a
-  // different question from "is the game running" and must never be mistaken for it.
+  // The heading is load-bearing: it answers whether the control plane's own processes are
+  // running, which is a different question from "is the game running" and must never be
+  // mistaken for it. The printed wording stays "Reveille" — it is read by the operator.
   return [`Reveille processes (not the game servers or the player) — plane ${verb}:`, ...lines].join('\n');
 }
 

@@ -1,8 +1,8 @@
 /**
- * The control plane: Reveille's own long-lived processes (008 US2).
+ * The control plane: the system's own long-lived processes (008 US2).
  *
  * **A different question from a target.** A *target* is a thing the system controls, and
- * `TENANTS` says which ones exist and where. A *service* is one of Reveille's own processes
+ * `TENANTS` says which ones exist and where. A *service* is one of the control plane's own
  * on this box. The two are deliberately sourced differently, and conflating them is how the
  * old script ended up storing each agent's port a third time.
  *
@@ -26,7 +26,7 @@ import { logPath, logSize, openLog, rotate, waitForLogLine } from './logs.ts';
 const execFileAsync = promisify(execFile);
 
 /**
- * One long-lived Reveille process on this host.
+ * One long-lived control-plane process on this host.
  *
  * `envFile` and `entryScript` are **absolute**, and that is load-bearing rather than
  * incidental. Launching with relative paths puts only `agent/src/index.ts` on the command
@@ -191,7 +191,7 @@ export function matchProcesses(
 }
 
 /**
- * Reveille's own processes for these services.
+ * The control plane's own processes for these services.
  *
  * **Identity is what a process is running** — this entry script with this env file — never a
  * recorded id (FR-032). A stale pid file can point at a recycled pid after a reboot and kill
@@ -337,7 +337,7 @@ async function waitForPort(port: number, timeoutMs: number): Promise<boolean> {
 }
 
 /**
- * Stop Reveille's own processes. **Never a controlled target** (FR-033).
+ * Stop the control plane's own processes. **Never a controlled target** (FR-033).
  *
  * A game server and VLC are not node processes running one of our entry scripts, so the
  * matcher cannot select them. That is a property of how identity is defined, not a filter

@@ -46,9 +46,9 @@ Templates requiring updates:
 Deferred placeholders: none
 -->
 
-# Reveille Constitution
+# Control Plane Constitution
 
-Reveille is an on-demand control plane for controllable targets on a host — game
+This project is an on-demand control plane for controllable targets on a host — game
 servers first, and any other target a host can start, stop, or toggle (a media
 player was the second, 003). This constitution governs how it is built. It does not restate the architecture —
 [`initial-architecture/DECISIONS.md`](../../initial-architecture/DECISIONS.md) is

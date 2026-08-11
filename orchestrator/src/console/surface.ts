@@ -8,7 +8,7 @@
  * or describe one differently.
  *
  * The `plane` half **is** authored here, because it mirrors nothing: those verbs act on
- * Reveille's own processes, which Discord has no concept of.
+ * the control plane's own processes, which Discord has no concept of.
  */
 import { buildCommandGroups, NO_MEDIA_TARGET } from '../commands.ts';
 import type { ControlledServer } from '../config.ts';

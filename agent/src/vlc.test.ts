@@ -13,7 +13,7 @@ import type { VlcConfig } from './config.ts';
 // (Constitution IV; FR-004, FR-011).
 //
 // 005 MOVED the line this file draws, and narrowed it in one dimension while
-// tightening it in another (DECISIONS 022). It is no longer "Reveille toggles
+// tightening it in another (DECISIONS 022). It is no longer "the control plane toggles
 // playback": the rule is now **no KNOWLEDGE of content**, not **no MOVEMENT through
 // content**.
 //

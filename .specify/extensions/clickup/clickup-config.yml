@@ -2,4 +2,4 @@
 # NO IDs or credentials here; the connected ClickUp MCP server handles auth and
 # runtime IDs land in each feature's specs/<feature>/.clickup-sync.json manifest.
 space: "products"   # ClickUp space the shared list lives in
-list: "Roadmap"     # the one shared list all reveille feature-cards go into
+list: "Roadmap"     # the one shared list all controlplane feature-cards go into

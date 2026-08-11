@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { dirname, resolve } from 'node:path';
 import { EXIT, exitCodeFor, repoRootFrom } from './index.ts';
 import type { CommandOutcome } from '../commands.ts';
 import { describeStart, describeStop, describePause, describeStatus } from '../commands.ts';
@@ -186,7 +187,14 @@ test('a plane service label is never a target name, so the two lists cannot be c
 
 test('the repo root is a fixed offset from this module — no parent-walking, no marker file', () => {
   const root = repoRootFrom(import.meta.url);
-  assert.match(root.replace(/\\/g, '/'), /snackbyte-reveille$/, 'three levels up from src/console');
+  // Round-tripped rather than matched by name: the property under test is the *offset*, and
+  // asserting the directory's name only ever passed because this checkout happened to carry it —
+  // it would fail on any clone into a differently-named folder, and did on the rename.
+  assert.equal(
+    resolve(root, 'orchestrator', 'src', 'console'),
+    dirname(fileURLToPath(import.meta.url)),
+    'three levels up from src/console',
+  );
 });
 
 test('the console never touches the bot credentials it happens to have in scope', () => {

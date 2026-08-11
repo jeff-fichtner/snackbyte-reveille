@@ -99,7 +99,7 @@ export function buildCommandGroups(servers: readonly ControlledServer[]): Comman
       new SlashCommandBuilder().setName('pause').setDescription('Pause the show.'),
       new SlashCommandBuilder().setName('play').setDescription('Resume the show.'),
       // Blind stepping (005). Bare and argument-free — a step needs to know nothing, and
-      // the description must not imply Reveille can see what is queued (FR-002).
+      // the description must not imply the control plane can see what is queued (FR-002).
     ];
 
     // The two stepping commands, each with ONE optional count — the same shape the seek

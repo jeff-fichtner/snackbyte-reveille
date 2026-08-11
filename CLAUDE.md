@@ -76,7 +76,7 @@ reveille pause | play | next [n] | previous [n] | forward [s] | back [s]
 reveille address <game>
 reveille help                      # and bare `reveille` — the same listing
 
-# THE CONTROL PLANE — Reveille's own node processes, behind `plane`
+# THE CONTROL PLANE — the system's own node processes, behind `plane`
 reveille plane up | down | restart | status | logs [service]
 ```
 
@@ -178,7 +178,7 @@ winding-down from coming-up, and that gap is deferred deliberately, with a trigg
 **The media ban is about *persistence and opinions*, not *observation* (007, DECISIONS
 024).** The rule has moved twice: 005 went from "no movement through content" to "no
 knowledge of content" (DECISIONS 022); 007 corrects that phrasing, because only *store*
-ever belonged to it. Reveille is **mechanism, not policy** and **level-triggered, not
+ever belonged to it. The control plane is **mechanism, not policy** and **level-triggered, not
 edge-triggered** — each call observes current reality, acts, and forgets.
 **Permitted**: blind relative movement (`pl_next`, `pl_previous`, a *relative* `seek`), and
 — since 007 — **observing** what the player reports in the response already fetched (title,

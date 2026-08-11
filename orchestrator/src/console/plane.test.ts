@@ -96,7 +96,7 @@ test('env parsing ignores comments and blank lines, as the real files have plent
 
 // Absolute, as discovery produces them — the repo root is part of a service's identity, so
 // a second checkout on the same machine cannot be mistaken for this one.
-const ROOT = 'C:/dev/snackbyte/code/snackbyte-reveille';
+const ROOT = 'C:/dev/snackbyte/code/snackbyte-controlplane';
 const services: PlaneService[] = [
   { label: 'palworld-agent', envFile: `${ROOT}/agent/.env.palworld`, entryScript: `${ROOT}/agent/src/index.ts`, port: 8300 },
   { label: 'orchestrator', envFile: `${ROOT}/orchestrator/.env`, entryScript: `${ROOT}/orchestrator/src/index.ts`, port: undefined },
@@ -120,16 +120,16 @@ test('the matcher CANNOT select a game server, VLC, or an unrelated node process
 
   const matched = matchProcesses(bystanders, services);
   for (const [label, procs] of matched) {
-    assert.deepEqual(procs, [], `${label} must match none of these — none of them is Reveille`);
+    assert.deepEqual(procs, [], `${label} must match none of these — none is the control plane`);
   }
 });
 
-test('the matcher DOES select Reveille’s own, by entry script AND env file together', () => {
+test('the matcher DOES select the control plane’s own, by entry script AND env file together', () => {
   const ours = [
     proc(10, `"C:\\Program Files\\nodejs\\node.exe" --env-file=${ROOT}/agent/.env.palworld ${ROOT}/agent/src/index.ts`),
     proc(11, `"C:\\Program Files\\nodejs\\node.exe" --env-file=${ROOT}/orchestrator/.env ${ROOT}/orchestrator/src/index.ts`),
     // Windows-style separators and casing, as a real command line reports them.
-    proc(12, 'node.exe --env-file=C:\\Dev\\Snackbyte\\Code\\snackbyte-reveille\\agent\\.env.palworld C:\\Dev\\Snackbyte\\Code\\snackbyte-reveille\\agent\\src\\index.ts'),
+    proc(12, 'node.exe --env-file=C:\\Dev\\Snackbyte\\Code\\snackbyte-controlplane\\agent\\.env.palworld C:\\Dev\\Snackbyte\\Code\\snackbyte-controlplane\\agent\\src\\index.ts'),
   ];
   const matched = matchProcesses(ours, services);
 
